@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Emberwild — The Ashen Hunt</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" media="print" onload="this.media='all'"
+        href="https://fonts.googleapis.com/css2?family=Cinzel:wght@500;700;900&family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;0,700;1,300;1,500&family=Noto+Serif+Thai:wght@400;600;800&family=Jost:wght@300;400;500&family=Noto+Sans+Thai:wght@300;400;500&display=swap">
+  <link rel="stylesheet" href="css/game.css">
+</head>
+<body data-device="kb">
+  <div id="boot"><div class="boot-ring"></div><div class="boot-text">EMBERWILD</div></div>
+  <div id="hud" class="is-hidden"></div>
+  <div id="subtitles"></div>
+  <div id="ui"></div>
+  <div id="toasts"></div>
+  <div id="fade"><div class="fade-card"></div></div>
+
+  <script src="vendor/three.min.js"></script>
+  <script src="js/core/save.js"></script>
+  <script src="js/core/i18n.js"></script>
+  <script src="js/core/input.js"></script>
+  <script src="js/core/audio.js"></script>
+  <script src="js/art/pixel.js"></script>
+  <script src="js/art/paint.js"></script>
+  <script src="js/art/characters.js"></script>
+  <script src="js/art/bosses.js"></script>
+  <script src="js/art/environment.js"></script>
+  <script src="js/art/scenery.js"></script>
+  <script src="js/art/sprites.js"></script>
+  <script src="js/engine/engine.js"></script>
+  <script src="js/engine/scenery.js"></script>
+  <script src="js/engine/camera.js"></script>
+  <script src="js/engine/world.js"></script>
+  <script src="js/engine/dressing.js"></script>
+  <script src="js/game/progress.js"></script>
+  <script src="js/game/weapons.js"></script>
+  <script src="js/game/player.js"></script>
+  <script src="js/game/boss.js"></script>
+  <script src="js/game/combat.js"></script>
+  <script src="js/game/hunt.js"></script>
+  <script src="js/ui/ui.js"></script>
+  <script src="js/ui/hud.js"></script>
+  <script src="js/main.js"></script>
+</body>
+</html>
