@@ -74,6 +74,7 @@
     W.name = name; W.group = new THREE.Group(); E.scene.add(W.group);
     (name === 'hub' ? buildHub : FIELDS[name])();
     if (EW.dress && EW.dress[name]) EW.dress[name]();
+    if (E.setGrade) E.setGrade(name); // per-area colour theme
     W.particles && W.group.add(W.particles);
   };
 
@@ -154,7 +155,7 @@
       const road = Math.abs(x) < 5 && z < -30 ? 1 : 0;
       return out > 0 ? (out * 0.12 + Math.pow(out / 25, 2) * 10) * (1 - road * 0.85) + (fbm(x * 0.05, z * 0.05) - 0.5) * 2 * smooth(0, 8, out) : 0;
     };
-    E.scene.fog = new THREE.Fog(0xc89880, 70, 420);
+    E.scene.fog = new THREE.Fog(0xc8a088, 34, 240); // near enough that the far courtyard and the forest beyond soften into haze
     const map = paintMap(512, 70, (x, z) => {
       const n = fbm(x * 0.15, z * 0.15), inside = Math.abs(x) < 30 && Math.abs(z) < 30;
       const grass = mix3([62, 84, 46], [92, 108, 58], n);
@@ -350,7 +351,7 @@
       for (const d of W.dens) h -= smooth(18, 4, Math.hypot(x - d.x, z - d.z)) * 1.6;
       return h;
     };
-    E.scene.fog = new THREE.Fog(0x6a5048, 60, 340);
+    E.scene.fog = new THREE.Fog(0x6a5048, 32, 250); // depth layering: the far basin and rim recede into ash haze
     const map = paintMap(1400, 340, (x, z) => {
       const n = fbm(x * 0.05, z * 0.05), n2 = fbm(x * 0.21 + 7, z * 0.21);
       let c = mix3([74, 66, 62], [104, 94, 86], n);

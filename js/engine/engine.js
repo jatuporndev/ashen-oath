@@ -8,7 +8,8 @@
   // pixel-art mode: low internal resolution, nearest upscale, palette-snapped textures
   const PIX = (EW.PIXEL = new URLSearchParams(location.search).get('pixel') !== '0');
   const renderer = new THREE.WebGLRenderer({ antialias: !PIX, powerPreference: 'high-performance' });
-  renderer.setPixelRatio(PIX ? 1 / 3 : Math.min(window.devicePixelRatio, 1.75));
+  // 1/2 (not 1/3): still reads as pixel art, but edges crawl far less while the camera turns
+  renderer.setPixelRatio(PIX ? 1 / 2 : Math.min(window.devicePixelRatio, 1.75));
   if (PIX) document.documentElement.classList.add('pixel');
   renderer.setSize(innerWidth, innerHeight);
   renderer.domElement.id = 'game-canvas';
@@ -18,6 +19,7 @@
   Object.assign(E, { renderer, scene, camera, tint: new THREE.Color(1, 1, 1), billboards: new Set(), time: 0 });
   addEventListener('resize', () => { camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); renderer.setSize(innerWidth, innerHeight); });
   const ANISO = renderer.capabilities.getMaxAnisotropy();
+  E.ANISO = ANISO;
 
   // pixelize a painted canvas (factor = how many painted px collapse into one texel)
   const pixMemo = new WeakMap();
@@ -28,7 +30,9 @@
     if (!m.has(key)) m.set(key, window.Pixel.scaled(canvas, factor, opts));
     return m.get(key);
   };
-  E.nearest = (t) => { if (PIX) { t.magFilter = THREE.NearestFilter; t.minFilter = THREE.NearestFilter; t.generateMipmaps = false; t.anisotropy = 1; } return t; };
+  // crisp when close (nearest magnify) but mip-mapped when far: distant ground, walls and sprites
+  // average out instead of sparkling / moiré-ing as the camera moves
+  E.nearest = (t) => { if (PIX) { t.magFilter = THREE.NearestFilter; t.minFilter = THREE.LinearMipmapLinearFilter; t.generateMipmaps = true; t.anisotropy = Math.min(8, ANISO); } return t; };
   E.tex = (canvas, repeat, factor) => {
     const t = new THREE.CanvasTexture(E.pix(canvas, factor || (repeat ? 2 : 3), { outline: !repeat }));
     t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = ANISO; E.nearest(t);
@@ -215,5 +219,63 @@
     v3.set(x, y, z).project(camera);
     return { x: (v3.x * 0.5 + 0.5) * innerWidth, y: (-v3.y * 0.5 + 0.5) * innerHeight, ok: v3.z < 1 && Math.abs(v3.x) < 1.15 && Math.abs(v3.y) < 1.15 };
   };
-  E.render = () => renderer.render(scene, camera);
+  // ---------------------------------------------------------------- colour grade (per-area theme)
+  // The scene renders into a half-float target, then one full-screen pass grades it:
+  // lift/gain, split toning (cool shadows / warm highlights), saturation and contrast.
+  // No bloom, grain, scanlines or lens effects — they tire the eyes.
+  const N3 = (a) => new THREE.Vector3(...a);
+  E.GRADES = {
+    none: { lift: [0, 0, 0], gain: [1, 1, 1], shadow: [0, 0, 0], high: [0, 0, 0], sat: 1, contrast: 1 },
+  };
+  // candidate looks per area (a sample sheet picks the final one; hub / ravine alias the choice)
+  E.GRADE_VARIANTS = {
+    'hub.golden': { lift: [0.02, 0.015, 0.0], gain: [1.03, 1.0, 0.93], shadow: [-0.03, 0.0, 0.035], high: [0.05, 0.025, -0.03], sat: 1.0, contrast: 1.06 },
+    'hub.storybook': { lift: [0.04, 0.03, 0.04], gain: [1.0, 0.98, 0.95], shadow: [0.0, -0.01, 0.04], high: [0.04, 0.02, 0.0], sat: 0.86, contrast: 0.97 },
+    'hub.morning': { lift: [0.0, 0.01, 0.025], gain: [1.0, 1.01, 1.02], shadow: [-0.035, -0.005, 0.045], high: [0.03, 0.03, 0.0], sat: 1.06, contrast: 1.09 },
+    'ravine.ember': { lift: [0.015, 0.0, 0.0], gain: [1.04, 0.97, 0.9], shadow: [0.015, -0.025, 0.03], high: [0.07, 0.025, -0.04], sat: 0.92, contrast: 1.08 },
+    'ravine.dusk': { lift: [0.0, 0.0, 0.0], gain: [1.06, 0.92, 0.86], shadow: [0.02, -0.03, 0.02], high: [0.08, 0.0, -0.05], sat: 0.85, contrast: 1.13 },
+    'ravine.ash': { lift: [0.03, 0.03, 0.03], gain: [1.0, 0.98, 0.96], shadow: [-0.02, 0.0, 0.03], high: [0.04, 0.03, 0.01], sat: 0.7, contrast: 1.04 },
+  };
+  Object.assign(E.GRADES, E.GRADE_VARIANTS, { hub: E.GRADE_VARIANTS['hub.storybook'], ravine: E.GRADE_VARIANTS['ravine.ash'] });
+  const gradeU = {
+    src: { value: null }, lift: { value: N3([0, 0, 0]) }, gain: { value: N3([1, 1, 1]) }, shadow: { value: N3([0, 0, 0]) }, high: { value: N3([0, 0, 0]) },
+    sat: { value: 1 }, contrast: { value: 1 }, strength: { value: 1 },
+  };
+  const gradeMat = new THREE.ShaderMaterial({
+    uniforms: gradeU, depthTest: false, depthWrite: false,
+    vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }',
+    fragmentShader: `uniform sampler2D src; uniform vec3 lift; uniform vec3 gain; uniform vec3 shadow; uniform vec3 high; uniform float sat; uniform float contrast; uniform float strength; varying vec2 vUv;
+      vec3 toSRGB(vec3 c){ c = max(c, 0.0); return mix(c*12.92, 1.055*pow(c, vec3(1.0/2.4)) - 0.055, step(0.0031308, c)); }
+      void main(){
+        vec3 o = toSRGB(texture2D(src, vUv).rgb), g = o;
+        g = gain*(g + lift*(1.0 - g));
+        float l = dot(g, vec3(0.299, 0.587, 0.114));
+        g += shadow*(1.0 - smoothstep(0.0, 0.55, l)) + high*smoothstep(0.45, 1.0, l);
+        l = dot(g, vec3(0.299, 0.587, 0.114));
+        g = mix(vec3(l), g, sat);
+        g = (g - 0.5)*contrast + 0.5;
+        gl_FragColor = vec4(clamp(mix(o, g, strength), 0.0, 1.0), 1.0);
+      }`,
+  });
+  const postScene = new THREE.Scene(), postCam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+  const quad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), gradeMat); quad.frustumCulled = false; postScene.add(quad);
+  let rt = null; const bufSize = new THREE.Vector2();
+  E.grade = { name: 'none', uniforms: gradeU };
+  E.setGrade = (name) => {
+    const G = E.GRADES[name] || E.GRADES.none; E.grade.name = name;
+    gradeU.lift.value.set(...G.lift); gradeU.gain.value.set(...G.gain); gradeU.shadow.value.set(...G.shadow); gradeU.high.value.set(...G.high);
+    gradeU.sat.value = G.sat; gradeU.contrast.value = G.contrast;
+  };
+  E.render = () => {
+    const on = E.grade.name !== 'none' && (!EW.save || EW.save.setting('filter') !== false);
+    if (!on) { renderer.render(scene, camera); return; }
+    renderer.getDrawingBufferSize(bufSize);
+    if (!rt || rt.width !== bufSize.x || rt.height !== bufSize.y) {
+      if (rt) rt.dispose();
+      rt = new THREE.WebGLRenderTarget(bufSize.x, bufSize.y, { type: THREE.HalfFloatType, minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter, depthBuffer: true });
+      gradeU.src.value = rt.texture;
+    }
+    renderer.setRenderTarget(rt); renderer.render(scene, camera);
+    renderer.setRenderTarget(null); renderer.render(postScene, postCam);
+  };
 })();

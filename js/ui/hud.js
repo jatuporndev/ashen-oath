@@ -31,10 +31,12 @@
       (el.loot = h('div.loot')),
       (el.vignette = h('div.hurt-vignette')),
       (el.lock = h('div.lockhint')),
+      (el.capture = h('div.capture-hint')),
     );
     HUD.relang();
   }
   HUD.relang = () => {
+    el.capture.textContent = t('hint.capture');
     el.mount.querySelector('.m-label').textContent = t('mount.meter');
     el.mBrace.replaceChildren(EW.ui.glyph('brace'), h('span', t('mount.braceKey')));
   };

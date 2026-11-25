@@ -1,4 +1,4 @@
-// Camera Controller — free orbit (RMB drag / right stick), wheel zoom, follow with
+// Camera Controller — third-person mouse look (captured cursor; RMB drag fallback / right stick), wheel zoom, follow with
 // dynamic framing that keeps both the hunter and a large boss on screen, lock-on,
 // cinematic overrides (gate walk, boss intro) and trauma-based screen shake.
 (function () {
@@ -60,15 +60,19 @@
       if (k >= 1 && c.dur < 1e5) { const f = c.onDone; C.cine = null; f && f(); }
       return;
     }
-    const sens = EW.save.setting('sens') / 5;
+    // camera speed: mouse and right stick have their own setting (5 = default, 20 = 4x)
+    const sens = (EW.save.setting('sens') || 5) / 5, psens = (EW.save.setting('padSens') || 5) / 5;
     if (ctx.inputEnabled) {
       const l = I.consumeLook();
-      C.yaw -= l.x * 0.0042 * sens;
-      C.pitch += l.y * 0.0034 * sens * (EW.save.setting('invertY') ? -1 : 1);
+      // ease raw mouse deltas over a few frames: no jitter from uneven mouse polling, calmer image
+      C.pendX = (C.pendX || 0) + l.x * sens + l.px * psens; C.pendY = (C.pendY || 0) + l.y * sens + l.py * psens;
+      const k = Math.min(1, dt * 22), lx = C.pendX * k, ly = C.pendY * k; C.pendX -= lx; C.pendY -= ly;
+      C.yaw -= lx * 0.0042;
+      C.pitch += ly * 0.0034 * (EW.save.setting('invertY') ? -1 : 1);
       C.pitch = Math.min(1.25, Math.max(0.08, C.pitch));
       const z = I.consumeZoom();
       if (z) C.dist = Math.min(C.maxDist, Math.max(C.minDist, C.dist * Math.pow(1.11, z)));
-    } else { I.consumeLook(); I.consumeZoom(); }
+    } else { I.consumeLook(); I.consumeZoom(); C.pendX = C.pendY = 0; }
 
     const p = ctx.player; const b = ctx.boss;
     let tx = p.x, ty = p.y + 1.6, tz = p.z, want = C.dist;

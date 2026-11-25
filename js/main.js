@@ -41,7 +41,7 @@
     const p = ensurePlayer(); W.player = p;
     if (from === 'return') p.place(0, -22, Math.PI); else p.place(W.spawn.x, W.spawn.z, W.spawn.yaw);
     EW.cam.ground = W.heightAt; EW.cam.inside = W.camInside;
-    EW.cam.reset(p.x, p.y + 1.6, p.z, from === 'return' ? Math.PI : 0, 13, 0.38);
+    EW.cam.reset(p.x, p.y + 1.6, p.z, from === 'return' ? Math.PI : 0, 10, 0.3);
     EW.cam.lock = false;
     G.quest = null;
     W.interact.push({ id: 'gate', x: 0, z: -26, r: 5.5, y: 9, label: 'prompt.gate', enabled: () => !G.quest, act: () => { EW.hud.notice('notice.gateSealed', 'warn'); EW.audio.sfx('fail', { vol: 0.4 }); } });
@@ -88,6 +88,10 @@
     if (is('KeyE', P.A)) { const it = currentInteract(); if (it) { EW.audio.sfx('uiConfirm', { vol: 0.5 }); it.act(); } }
     if (is('KeyQ', P.LT) && EW.hunt && EW.hunt.boss.engaged && !EW.hunt.boss.lost && EW.hunt.boss.state !== 'dead') { EW.cam.lock = !EW.cam.lock; EW.audio.sfx('uiMove'); }
   };
+  // mouse look: capture the cursor while playing; releasing it (Esc / alt-tab) pauses
+  const playingFree = () => (G.state === 'hub' || G.state === 'field') && !EW.ui.isOpen();
+  EW.input.canLock = playingFree;
+  EW.input.onLockLost = () => { if (playingFree()) EW.ui.open('pause'); };
   function control() {
     if (EW.ui.isOpen()) return false;
     if (G.state === 'hub') return G.player.state !== 'cine';
@@ -109,6 +113,7 @@
     let dt = Math.min(0.05, (now - last) / 1000); last = now;
     E.time += dt;
     EW.input.poll(dt);
+    if (EW.input.locked() && !(playingFree() || G.state === 'depart')) EW.input.unlock();
     const fov = EW.save.setting('fov'); if (E.camera.fov !== fov) { E.camera.fov = fov; E.camera.updateProjectionMatrix(); }
     if (G.state === 'attract' || G.state === 'boot') {
       EW.cam.yaw = Math.sin(E.time * 0.05) * 0.42;

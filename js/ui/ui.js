@@ -263,7 +263,7 @@
       if (k === 'gameplay') body.append(
         settingSelect('dmgNums', onOff()), settingSelect('lockAssist', onOff()), settingSelect('subtitles', onOff()),
         settingSelect('subSize', [{ value: 'small', label: t('ui.small') }, { value: 'medium', label: t('ui.medium') }, { value: 'large', label: t('ui.large') }]));
-      if (k === 'camera') body.append(sliderRow({ key: 'sens', min: 1, max: 10, step: 1 }), settingSelect('invertY', onOff()), sliderRow({ key: 'fov', min: 40, max: 70, step: 5, format: (v) => v + '°' }), settingSelect('shake', onOff()));
+      if (k === 'camera') body.append(sliderRow({ key: 'sens', min: 1, max: 20, step: 1 }), sliderRow({ key: 'padSens', min: 1, max: 20, step: 1 }), settingSelect('invertY', onOff()), sliderRow({ key: 'fov', min: 40, max: 70, step: 5, format: (v) => v + '°' }), settingSelect('shake', onOff()), settingSelect('filter', onOff()));
       if (k === 'audio') body.append(sliderRow({ key: 'master', min: 0, max: 100, step: 5 }), sliderRow({ key: 'music', min: 0, max: 100, step: 5 }), sliderRow({ key: 'sfx', min: 0, max: 100, step: 5 }));
       if (k === 'language') {
         body.append(selectRow({ label: t('set.lang'), desc: t('set.lang.d'), options: [{ value: 'th', label: 'ไทย' }, { value: 'en', label: 'English' }], get: () => EW.lang, set: (v) => { EW.setLang(v); } }));

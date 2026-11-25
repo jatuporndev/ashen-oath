@@ -530,12 +530,22 @@ body { font-family: var(--f-ui); font-weight: 300; color: var(--c-text); -webkit
 .emblem { width: 26px; height: 26px; border-radius: 0; background: none; box-shadow: none; opacity: .85; }
 .emblem img.icon { width: 26px; height: 26px; filter: drop-shadow(0 1px 4px rgba(0, 0, 0, .8)); }
 .bars { margin: 9px 0 0; padding: 0; gap: 5px; background: none; clip-path: none; filter: drop-shadow(0 1px 3px rgba(0, 0, 0, .75)); }
-.bar { background: rgba(239, 233, 221, .16); box-shadow: none; overflow: visible; }
-.bar.hp { width: 250px; height: 3px; } .bar.st { width: 190px; height: 2px; }
-.bar.hp .fill { background: #cfdcae; box-shadow: none; } .bar.hp .lag { background: #efe9dd; opacity: .5; } .bar.hp .heal { background: rgba(207, 220, 174, .4); }
-.bar.st .fill { background: #d9c8a4; } .vitals.tired .bar.st .fill { background: #a8876a; }
-.vitals.low .bar.hp { animation: none; } .vitals.low .bar.hp .fill { background: var(--c-warn); animation: lowpulse .9s cubic-bezier(.65, 0, .35, 1) infinite; }
-@keyframes lowpulse { 0%, 100% { opacity: 1; } 50% { opacity: .45; } }
+/* readable at a glance on bright snow and dark rock alike: dark track + outline, saturated fills */
+.bar { background: rgba(8, 6, 6, .72); box-shadow: 0 0 0 1px rgba(0, 0, 0, .85), 0 0 0 2px rgba(239, 233, 221, .22); overflow: hidden; }
+.bar.hp { width: 260px; height: 9px; } .bar.st { width: 200px; height: 5px; }
+.bar.hp .fill { background: linear-gradient(180deg, #f2675a 0%, #d6372c 45%, #9e1d18 100%); box-shadow: inset 0 1px 0 rgba(255, 210, 200, .45); }
+.bar.hp .lag { background: #f4ead2; opacity: .9; }
+.bar.hp .heal { background: rgba(120, 230, 120, .55); }
+.bar.st .fill { background: linear-gradient(180deg, #ffd36a 0%, #e8a53a 60%, #b0721e 100%); }
+.vitals.tired .bar.st .fill { background: linear-gradient(180deg, #c98a6a, #8a4a30); }
+.vitals.low .bar.hp { animation: none; } .vitals.low .bar.hp .fill { background: linear-gradient(180deg, #ff4a3a, #b8140e); animation: lowpulse .9s cubic-bezier(.65, 0, .35, 1) infinite; }
+@keyframes lowpulse { 0%, 100% { opacity: 1; } 50% { opacity: .6; } }
+.capture-hint { position: absolute; left: 50%; bottom: 13vh; transform: translateX(-50%); font-family: var(--f-ui); font-size: 11px; letter-spacing: .28em; text-transform: uppercase; color: var(--c-text); text-shadow: 0 1px 10px rgba(0, 0, 0, .85); white-space: nowrap; opacity: 0; transition: opacity .5s; pointer-events: none; }
+.capture-hint::before, .capture-hint::after { content: ''; display: inline-block; width: 22px; height: 1px; margin: 0 14px; vertical-align: middle; background: var(--c-line-strong); }
+body.in-game:not([data-device="pad"]):not(.mouse-locked) .capture-hint { opacity: .85; animation: capturePulse 2.4s ease-in-out infinite; }
+@keyframes capturePulse { 50% { opacity: .45; } }
+body[data-lang="th"] .capture-hint { letter-spacing: .04em; font-size: 13.5px; }
+body.mouse-locked, body.mouse-locked * { cursor: none !important; }
 .pips { gap: 7px; height: 6px; margin-top: 3px; }
 .pips span { width: 5px; height: 5px; border: 1px solid var(--c-line-strong); }
 .pips span.lit { background: var(--c-accent); border-color: var(--c-accent); box-shadow: none; }

@@ -16,7 +16,7 @@
       const sp = EW.world.spawn;
       player.place(sp.x, sp.z, sp.yaw); player.resetVitals(); player.potions = 5;
       EW.cam.ground = EW.world.heightAt; EW.cam.inside = null;
-      EW.cam.reset(player.x, player.y + 1.6, player.z, 0, 14, 0.32);
+      EW.cam.reset(player.x, player.y + 1.6, player.z, 0, 11, 0.28);
       // arrival: the hunter walks in from the canyon road
       player.setState('cine'); player.autoWalk = [0, -1];
       EW.audio.music('field'); EW.audio.ambience('field');
@@ -78,7 +78,7 @@
       if (this.faints >= this.quest.faints) { setTimeout(() => this.fail('faints'), 2400); return; }
       setTimeout(() => EW.ui.fadeThrough(() => {
         const p = this.player; p.place(0, 80, 0); p.resetVitals(); p.y = EW.world.heightAt(0, 80);
-        EW.cam.reset(p.x, p.y + 1.6, p.z, 0, 13, 0.4);
+        EW.cam.reset(p.x, p.y + 1.6, p.z, 0, 11, 0.3);
         if (this.boss.mount) this.boss.mount = null;
         if (this.boss.state === 'mounted') this.boss.enter('stalk');
       }), 2200);

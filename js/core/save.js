@@ -8,7 +8,7 @@
   const write = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); return true; } catch (e) { return false; } };
 
   const DEFAULT_SETTINGS = {
-    sens: 5, invertY: false, fov: 50, lockAssist: true,
+    sens: 5, padSens: 5, filter: true, invertY: false, fov: 50, lockAssist: true,
     master: 80, music: 60, sfx: 80,
     subtitles: true, subSize: 'medium', dmgNums: true, shake: true,
   };
