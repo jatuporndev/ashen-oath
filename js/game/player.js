@@ -179,7 +179,10 @@
         case 'stun': if (this.t > 1.3) this.setState('move'); break;
         case 'fall':
         case 'plunge':
-          if (this.state === 'fall' && atk) { this.sheathed = false; this.setState('plunge'); EW.audio.sfx('swingHeavy'); }
+          // a click buffered on the take-off frame counts too (it used to be lost to the jump)
+          if (this.state === 'fall' && (atk || this.buffer > 0)) { this.buffer = 0; this.sheathed = false; this.setState('plunge'); EW.audio.sfx('swingHeavy'); }
+          // never hang in the air: no real fall lasts this long — put the hunter back on the ground
+          if (this.t > 4) { this.y = EW.world.heightAt(this.x, this.z); this.vy = 0; this.setState('land'); }
           if (mv.mag > 0.1) { this.fx = lerp(this.fx, wx, dt * 4); this.fz = lerp(this.fz, wz, dt * 4); speed = 4 * mv.mag; }
           break;
         case 'land': if (this.t > 0.35) this.setState('move'); break;

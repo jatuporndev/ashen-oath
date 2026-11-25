@@ -233,12 +233,14 @@
   // placement rides on the chest, so it follows the spine when running hunched or rolling.
   const SHEATH = {
     // Cloud-style: hilt jutting up over the right shoulder, the slab of a blade slanting down the back
-    greatsword: [['weapon', 'handR', [-0.36, 1.86, -0.4], nrm([0.56, -0.83, -0.04]), [0, 0, 1]]],
+    greatsword: [['weapon', 'handR', [-0.38, 2.3, -0.42], nrm([0.6, -0.8, -0.04]), [0, 0, 1]]], // tip stays above the ankles (blade is longer than the hero is tall)
     // across the back, head up over the right shoulder
     spear: [['weapon', 'handR', [0.06, 1.18, -0.36], nrm([-0.5, 0.86, -0.02]), [0, 0, 1]]],
     // crossed on the back, hilts up
     dual: [['weapon', 'handR', [-0.22, 1.6, -0.36], nrm([0.42, -0.9, -0.04]), [0, 0, 1]], ['weaponOff', 'handL', [0.22, 1.6, -0.39], nrm([-0.42, -0.9, -0.04]), [0, 0, 1]]],
   };
+  // the weapon's two ends along its own +Z (pommel / blade tip, butt / spearhead)
+  const SHEATH_ENDS = { greatsword: [-0.36, 2.63], spear: [-0.65, 2.04], dual: [-0.08, 0.73] };
   const _M = new THREE.Matrix4(), _M2 = new THREE.Matrix4(), _vs = new THREE.Vector3();
   function sheathe(R) {
     const ud = R.root.userData, list = SHEATH[ud.kind]; if (!list) return;
@@ -250,11 +252,17 @@
       _M.makeBasis(x, y, z).setPosition(g[0], g[1], g[2]);           // wanted, in rest character space
       _M2.copy(ud.chestRestInv).multiply(_M);                         // -> relative to the chest
       _M.copy(R.chest.matrixWorld).multiply(_M2);                     // -> world, following the posed chest
+      // never into the ground (lying on the back, mid-roll): lift by however far the lower end would sink
+      const ends = SHEATH_ENDS[ud.kind] || [0, 1];
+      let low = Infinity;
+      for (const ez of ends) { const yy = _vs.set(0, 0, ez).applyMatrix4(_M).y - R.root.matrixWorld.elements[13]; if (yy < low) low = yy; }
+      if (low < 0.16) _M.elements[13] += 0.16 - low; // margin covers the blade's width past its centre line
       _M2.copy(R[hn].matrixWorld).invert().multiply(_M);              // -> local to the hand the joint hangs from
       _M2.decompose(R[jn].position, R[jn].quaternion, _vs);
     }
   }
   F.SHEATH = SHEATH;
+  F._apply = (R, pose) => apply(R, pose); // for tools / tests
   function apply(R, pose) {
     for (const [k, o] of Object.entries(R)) { const r = o.userData.rest; if (r && k !== 'root') { o.position.copy(r.p); o.rotation.copy(r.r); } }
     for (const [k, v] of Object.entries(pose)) {

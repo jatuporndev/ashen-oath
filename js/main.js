@@ -141,7 +141,10 @@
       const hunt = EW.hunt;
       if (sim > 0) {
         const boss = hunt && hunt.boss;
-        p.update(sim, { control: control(), lockTarget: EW.cam.lock && boss ? boss : null });
+        // a thrown error here used to freeze the hunter for good (the loop kept drawing, the player never
+        // updated again): log it once and put the hunter back on their feet instead
+        try { p.update(sim, { control: control(), lockTarget: EW.cam.lock && boss ? boss : null }); }
+        catch (e) { if (!G.updErr) { G.updErr = true; console.error('player update failed', p.state, e); } p.vy = 0; p.y = W.heightAt(p.x, p.z); if (p.state !== 'mounted' && p.state !== 'faint') p.setState('move'); }
         if (hunt) hunt.update(sim);
         EW.combat.update(sim);
         if (G.state === 'hub' && G.quest && p.z < W.departZ) depart();
