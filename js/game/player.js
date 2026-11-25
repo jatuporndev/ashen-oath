@@ -5,25 +5,36 @@
   'use strict';
   const EW = (window.EW = window.EW || {});
   const E = EW.engine, A = window.Art;
-  const sheets = {};
-  const sheetFor = (pal) => (sheets[pal] = sheets[pal] || A.heroSheet(pal));
   const ease = (k) => 1 - Math.pow(1 - k, 3), easeIn = (k) => k * k;
   const lerp = (a, b, t) => a + (b - a) * t;
 
-  const fistCache = {};
-  function fistMat(col) {
-    if (fistCache[col]) return fistCache[col];
-    const c = document.createElement('canvas'); c.width = 30; c.height = 26; const x = c.getContext('2d');
-    x.fillStyle = '#2a1a14'; x.beginPath(); x.ellipse(15, 13, 14, 12, 0, 0, 7); x.fill();
-    x.fillStyle = col; x.beginPath(); x.ellipse(15, 13, 11, 9, 0, 0, 7); x.fill();
-    x.strokeStyle = 'rgba(60,30,20,.55)'; x.lineWidth = 2; for (let k = 0; k < 3; k++) { x.beginPath(); x.moveTo(9 + k * 6, 6); x.lineTo(9 + k * 6, 12); x.stroke(); }
-    x.fillStyle = 'rgba(255,255,255,.35)'; x.beginPath(); x.ellipse(11, 9, 4, 2.5, 0, 0, 7); x.fill();
-    return (fistCache[col] = new THREE.MeshBasicMaterial({ map: E.tex(c, null, 2), alphaTest: 0.5, side: THREE.DoubleSide }));
+  // baked pixel-art sheets (js/art/forge.js), one per weapon + armour palette + weapon tier
+  // a sheet is a big canvas (tens of MB): keep only the few most recent
+  const forged = new Map(), baking = new Map(), KEEP = 3;
+  const sheetKey = (kind) => kind + '|' + EW.progress.palette() + '|' + EW.progress.weaponTier(kind);
+  const bakeOpts = (kind) => ({ pal: A.HERO_PALETTES[EW.progress.palette()], weapon: kind, tier: EW.progress.weaponTier(kind) });
+  const remember = (k, S) => { forged.delete(k); forged.set(k, S); while (forged.size > KEEP) forged.delete(forged.keys().next().value); return S; };
+  function forgeSheet(kind) {
+    const k = sheetKey(kind);
+    if (forged.has(k)) return remember(k, forged.get(k));
+    return remember(k, EW.Forge.bake(bakeOpts(kind)));
   }
+  // baked in slices (no frozen frame); the shop shows the smith at work meanwhile
+  function forgeSheetAsync(kind) {
+    const k = sheetKey(kind);
+    if (baking.has(k)) return baking.get(k);
+    const job = EW.Forge.bakeAsync(bakeOpts(kind));
+    job.key = k;
+    job.promise = job.promise.then((S) => { baking.delete(k); return remember(k, S); }, (e) => { baking.delete(k); throw e; });
+    baking.set(k, job);
+    return job;
+  }
+  // how long it takes to get the weapon off the back and into the hands
+  const DRAW = { greatsword: 0.5, spear: 0.38, dual: 0.3 }, SHEATHE = 0.34;
   class Player {
     constructor() {
-      const H = A.HERO;
-      this.sprite = new EW.DirectionalSprite({ sheet: sheetFor(EW.progress.palette()), cols: H.POSES.length, rows: H.VIEWS.length, frameW: H.FW, frameH: H.FH, height: 2.2, views: H.VIEWS, poses: H.POSES });
+      this.kind = EW.save.game.weapon;
+      this.sprite = new EW.Forge.Sprite(forgeSheet(this.kind));
       this.root = this.sprite.root;
       this.shadow = E.shadow(0.75); this.root.add(this.shadow);
       E.scene.add(this.root);
@@ -31,26 +42,21 @@
       this.maxHp = 150; this.hp = 150; this.stam = 100; this.maxStam = 100; this.stamDelay = 0;
       this.state = 'move'; this.t = 0; this.walk = 0; this.iframe = false; this.potions = 0;
       this.heal = 0; this.prev = {}; this.buffer = 0; this.skillT = 0; this.danceT = 0; this.kv = { x: 0, z: 0 };
-      this.setWeapon(EW.save.game.weapon);
+      this.sheathed = false;
+      this.setWeapon(EW.save.game.weapon, true);
     }
-    setPalette() { this.sprite.setSheet(sheetFor(EW.progress.palette())); }
-    setWeapon(kind) {
-      this.kind = kind; this.W = EW.WEAPONS[kind];
-      for (const p of [this.sprite.main, this.sprite.off]) while (p.children.length) p.remove(p.children[0]);
-      const art = A.weapon(kind, EW.progress.weaponTier(kind));
-      this.wMain = EW.makeWeaponMesh(art, A.HERO.PX_PER_UNIT * (kind === 'spear' ? 0.95 : kind === 'greatsword' ? 1.22 : 1));
-      this.wHolder = new THREE.Group(); this.wHolder.add(this.wMain); this.sprite.main.add(this.wHolder);
-      this.wOff = null; this.oHolder = new THREE.Group(); this.sprite.off.add(this.oHolder);
-      if (kind === 'dual') { this.wOff = EW.makeWeaponMesh(art, A.HERO.PX_PER_UNIT); this.oHolder.add(this.wOff); }
-      // fists wrapped over the grip so the weapon always reads as held (two for two-handers)
-      const pal = EW.progress.palette ? (A.HERO_PALETTES || {})[EW.progress.palette()] : null;
-      const fist = (holder, dy) => { const m = new THREE.Mesh(E.centerPlane, fistMat(pal ? pal.skin : '#f0c6a0')); m.scale.set(0.3, 0.26, 1); m.position.set(0, dy, 0.03); holder.add(m); return m; };
-      this.fists = [fist(this.wHolder, 0)];
-      if (this.W.twoHand) this.fists.push(fist(this.wHolder, -0.22));
-      else if (kind === 'spear') this.fists.push(fist(this.wHolder, 0.62));
-      if (this.wOff) this.fists.push(fist(this.oHolder, 0));
-      this.angMain = this.W.idle.main; this.angOff = this.W.idle.off;
+    // returns null when the sheet was ready (or baked on the spot with sync), else a bake job
+    // { promise, progress() } that the UI can show while the hero keeps the old look
+    refreshSheet(sync) {
+      const k = sheetKey(this.kind);
+      if (forged.has(k)) { const S = remember(k, forged.get(k)); if (this.sprite.S !== S) this.sprite.setSheet(S); return null; }
+      if (sync) { this.sprite.setSheet(forgeSheet(this.kind)); return null; }
+      const job = forgeSheetAsync(this.kind);
+      job.promise.then((S) => { if (sheetKey(this.kind) === k && this.sprite.S !== S) this.sprite.setSheet(S); }).catch((e) => console.error(e));
+      return job;
     }
+    setPalette(sync) { return this.refreshSheet(sync); }
+    setWeapon(kind, sync) { this.kind = kind; this.W = EW.WEAPONS[kind]; this.sheathed = false; return this.refreshSheet(sync); }
     place(x, z, yaw = 0) { this.x = x; this.z = z; this.y = EW.world.heightAt(x, z); this.vy = 0; this.fx = -Math.sin(yaw); this.fz = -Math.cos(yaw); this.state = 'move'; this.t = 0; this.root.visible = true; }
     resetVitals() { this.hp = this.maxHp; this.stam = this.maxStam; this.heal = 0; this.state = 'move'; this.iframe = false; }
     get def() { return EW.progress.defense(); }
@@ -68,6 +74,7 @@
       // edges (always sampled so stale presses don't fire later)
       const atk = can && this.pressed('attack'), atkUp = !EW.input.held('attack');
       const dodge = can && this.pressed('dodge');
+      const jump = can && this.pressed('jump');
       const skillDown = can && EW.input.held('skill'), skillP = can && this.pressed('skill');
       const potion = can && this.pressed('potion');
       if (atk) this.buffer = 0.32; else this.buffer = Math.max(0, this.buffer - dt);
@@ -89,13 +96,17 @@
       switch (this.state) {
         case 'move': {
           this.iframe = false;
+          // sprinting means the weapon goes on the back first (and has to be drawn again before a swing)
+          if (!this.sheathed && mv.mag > 0.5 && I.held('sprint') && this.stam > 1 && this.sprite.has('sheathe')) { this.setState('sheathe'); EW.audio.sfx('uiMove', { vol: 0.35 }); speed = 6.2 * Math.min(1, mv.mag); this.fx = lerp(this.fx, wx, Math.min(1, dt * 14)); this.fz = lerp(this.fz, wz, Math.min(1, dt * 14)); break; }
+          if (this.sheathed && (this.buffer > 0 || skillP || skillDown)) { this.drawNext = this.buffer > 0 ? 'attack' : null; this.buffer = 0; this.setState('draw'); EW.audio.sfx('swingLight', { vol: 0.35 }); break; }
           if (mv.mag > 0.1) {
-            const sprint = I.held('sprint') && this.stam > 1 && mv.mag > 0.5;
+            const sprint = this.sheathed && I.held('sprint') && this.stam > 1 && mv.mag > 0.5;
             speed = (sprint ? 9.6 : 6.2) * Math.min(1, mv.mag);
             if (sprint) { this.sprinting = true; this.useStam(18 * dt); this.stamDelay = 0.4; }
             this.fx = lerp(this.fx, wx, Math.min(1, dt * 14)); this.fz = lerp(this.fz, wz, Math.min(1, dt * 14));
           }
           if (dodge && this.stam >= 6) { this.startDodge(wl > 0.2 ? wx : this.fx, wl > 0.2 ? wz : this.fz); break; }
+          if (jump && this.y - EW.world.heightAt(this.x, this.z) < 0.2) { this.vy = 11.5; this.y += 0.06; this.setState('fall'); EW.audio.sfx('dodge', { vol: 0.5 }); break; }
           if (potion && this.potions > 0 && this.hp < this.maxHp) { this.potions--; this.setState('drink'); EW.audio.sfx('potion'); break; }
           if (this.buffer > 0) { this.buffer = 0; const [ax, az] = aimDir(); this.fx = ax; this.fz = az; this.startMove(this.firstMove()); break; }
           if (skillP) this.skillT = 0;
@@ -106,6 +117,24 @@
             if (skillDown && this.skillT > 0.22) { this.setState('stance'); EW.audio.sfx('guard', { vol: 0.5 }); break; }
             if (!skillDown && this.skillT > 0 && this.skillT <= 0.22 && this.stam >= 10) { this.skillT = 0; const [ax, az] = aimDir(); this.fx = ax; this.fz = az; this.startMove('high'); break; }
             if (!skillDown) this.skillT = 0;
+          }
+          break;
+        }
+        case 'sheathe':
+          if (mv.mag > 0.1) { speed = 6.2 * Math.min(1, mv.mag); this.fx = lerp(this.fx, wx, Math.min(1, dt * 14)); this.fz = lerp(this.fz, wz, Math.min(1, dt * 14)); }
+          if (dodge && this.stam >= 6) { this.sheathed = true; this.startDodge(wl > 0.2 ? wx : this.fx, wl > 0.2 ? wz : this.fz); break; }
+          if (this.t >= SHEATHE) { this.sheathed = true; this.setState('move'); }
+          break;
+        case 'draw': {
+          // drawing is a commitment: slow steps, the attack only starts once the weapon is in hand
+          if (mv.mag > 0.1) { speed = 1.6 * Math.min(1, mv.mag); this.fx = lerp(this.fx, wx, dt * 6); this.fz = lerp(this.fz, wz, dt * 6); }
+          if (atk) this.drawNext = 'attack';
+          if (dodge && this.stam >= 6) { this.startDodge(wl > 0.2 ? wx : this.fx, wl > 0.2 ? wz : this.fz); break; }
+          if (this.t >= DRAW[this.kind]) {
+            this.sheathed = false; EW.audio.sfx('guard', { vol: 0.25 });
+            if (this.drawNext === 'attack') { const [ax, az] = aimDir(); this.fx = ax; this.fz = az; this.setState('move'); this.startMove(this.firstMove()); }
+            else this.setState('move');
+            this.drawNext = null;
           }
           break;
         }
@@ -150,11 +179,11 @@
         case 'stun': if (this.t > 1.3) this.setState('move'); break;
         case 'fall':
         case 'plunge':
-          if (this.state === 'fall' && atk) { this.setState('plunge'); EW.audio.sfx('swingHeavy'); }
+          if (this.state === 'fall' && atk) { this.sheathed = false; this.setState('plunge'); EW.audio.sfx('swingHeavy'); }
           if (mv.mag > 0.1) { this.fx = lerp(this.fx, wx, dt * 4); this.fz = lerp(this.fz, wz, dt * 4); speed = 4 * mv.mag; }
           break;
         case 'land': if (this.t > 0.35) this.setState('move'); break;
-        case 'mounted': this.updateMounted(dt, atk); break;
+        case 'mounted': this.sheathed = false; this.updateMounted(dt, atk); break;
         case 'faint': break;
         case 'cine': speed = this.autoWalk ? 5.2 : 0; if (this.autoWalk) { this.fx = this.autoWalk[0]; this.fz = this.autoWalk[1]; } break;
       }
@@ -199,7 +228,6 @@
       if (m.stam) { if (this.stam < m.stam) return; this.useStam(m.stam); }
       this.setState('attack'); this.move = m; this.moveName = name; this.phase = m.wind > 0 ? 'wind' : 'act'; this.pt = 0; this.charge = 0; this.chargeLv = 0; this.chargeMul = charge; this.swung = false; this.hitsLeft = m.hits || 1;
       if (this.phase === 'act') this.enterAct();
-      if (name === 'charged') { this.angMain = m.a[0]; }
     }
     enterAct() {
       const m = this.move;
@@ -299,7 +327,8 @@
 
     // ------------------------------------------------------------------ mounted (driven by the boss)
     updateMounted(dt, atk) {
-      const b = EW.hunt && EW.hunt.boss; if (!b) return;
+      const b = EW.hunt && EW.hunt.boss;
+      if (!b || !b.mount) { this.vy = 0; this.setState('fall'); return; } // safety: never stay stuck in the riding pose
       const mp = b.mountPoint(); this.x = mp.x; this.y = mp.y; this.z = mp.z;
       this.braced = EW.input.held('brace');
       if (atk && !this.braced && this.t > 0.25) { this.t = 0; this.stab = 0.22; b.mountStab(this); }
@@ -308,57 +337,56 @@
 
     // ------------------------------------------------------------------ sprite animation
     animate(dt, speed, ctx) {
-      const S = this.sprite, yaw = EW.cam.billboardAngles();
-      const view = S.face(this.fx, this.fz, yaw.yaw);
-      S.billboard(yaw.yaw, -yaw.pitch * 0.35);
+      const S = this.sprite, cam = EW.cam.billboardAngles();
+      S.face(this.fx, this.fz, cam.yaw);
+      S.billboard(cam.yaw, -cam.pitch * 0.35);
       this.root.position.set(this.x, this.y, this.z);
       this.shadow.position.y = EW.world.heightAt(this.x, this.z) - this.y + 0.06;
-      S.roll.rotation.z = 0; S.body.scale.y = S.h; S.roll.position.y = S.h * 0.42;
-      let pose = 'idle', aM = this.W.idle.main, aO = this.W.idle.off, push = 0;
-      const st = this.state;
-      if (st === 'move' || st === 'drink' || st === 'guard' || st === 'dance' || st === 'cine') {
-        if (speed > 0.3) { this.walk += dt * speed * 1.15; pose = 'walk' + (1 + (Math.floor(this.walk * 2) % 4)); }
-        else { S.body.scale.y = S.h * (1 + Math.sin(E.time * 2.4) * 0.012); }
-        if (this.sprinting) aM = this.kind === 'spear' ? -0.9 : this.W.idle.main + 0.3;
+      S.wob.rotation.z = 0; S.wob.position.set(0, 1.0, 0);
+      let anim = 'idle', f = Math.floor(E.time * 2.5) % 4;
+      const st = this.state, at = (k, n) => Math.min(n - 1, Math.floor(Math.max(0, k) * n));
+      if (st === 'move' || st === 'cine' || st === 'drink' || st === 'guard' || st === 'stance' || st === 'draw' || st === 'sheathe') {
+        if (speed > 0.3) { this.walk += dt * speed * 1.15; anim = 'walk'; f = Math.floor(this.walk * 4) % 8; }
+        if (speed > 7.5 && this.sheathed) { anim = 'run'; f = Math.floor(this.walk * 3.2) % 8; }
       }
       if (st === 'attack') {
-        const m = this.move, sp = this.W.speed;
-        const hand = m.hand || 'main';
-        let a;
-        if (this.phase === 'wind') { const k = Math.min(1, this.pt / (m.wind / sp)); a = lerp(m.a[0], m.a[1], ease(k)); pose = 'raise'; }
-        else if (this.phase === 'act') { const k = Math.min(1, this.pt / (m.act / sp)); a = lerp(m.a[1], m.a[2], easeIn(k)); pose = 'strike'; push = m.thrust ? k * 0.5 : 0; }
-        else { const k = Math.min(1, this.pt / (m.rec / sp)); const idle = hand === 'off' ? this.W.idle.off : this.W.idle.main; a = lerp(m.a[2], idle, ease(Math.max(0, k - 0.35) / 0.65)); pose = k < 0.55 ? 'strike' : 'idle'; push = m.thrust ? 0.5 * (1 - k) : 0; }
-        if (hand === 'main' || hand === 'both') aM = a;
-        if (hand === 'off' || hand === 'both') aO = hand === 'both' ? a + 0.35 : a;
-        if (this.moveName === 'high') pose = this.phase === 'wind' ? 'raise' : 'strike';
+        const m = this.move, sp = this.W.speed, a = S.S.anims['mv_' + this.moveName];
+        if (a) {
+          anim = 'mv_' + this.moveName;
+          if (this.phase === 'wind') f = at(this.pt / (m.wind / sp), a.nW);
+          else if (this.phase === 'act') f = a.nW + at(this.pt / (m.act / sp), a.nA);
+          else f = a.nW + a.nA + at(this.pt / (m.rec / sp), a.nR);
+        }
       }
-      if (st === 'charge') { pose = 'raise'; aM = 2.6 + Math.sin(E.time * 30) * 0.02 * (1 + this.chargeLv); }
-      if (st === 'guard') { pose = 'raise'; aM = -0.25; }
-      if (st === 'stance') { pose = 'raise'; aM = -1.3; }
-      if (st === 'dance') { pose = this.flipDance ? 'strike' : 'raise'; aM = this.flipDance ? -2.4 : 2.2; aO = this.flipDance ? 2.2 : -2.4; S.bb.scale.x *= this.flipDance ? -1 : 1; }
+      if (st === 'charge') { anim = 'charge'; f = 0; S.wob.position.x = Math.sin(E.time * 40) * 0.012 * (1 + this.chargeLv); }
+      if (st === 'guard') { anim = 'guard'; f = 0; }
+      if (st === 'stance') { anim = 'stance'; f = 0; }
+      if (st === 'dance') { anim = 'dance'; f = this.flipDance ? 1 : 0; }
       if (st === 'dodge') {
-        const k = this.dodgeKind; pose = 'dodge';
-        if (k === 'roll' || k === 'hop') { const dur = k === 'hop' ? 0.4 : 0.48; S.roll.rotation.z = -Math.min(1, this.t / dur) * Math.PI * 2 * (k === 'hop' ? 0 : 1); S.roll.position.y = S.h * 0.42 * (k === 'roll' ? 0.7 : 1) + (k === 'hop' ? Math.sin(Math.min(1, this.t / dur) * Math.PI) * 0.6 : 0); }
+        const k = this.dodgeKind, dur = k === 'dash' ? 0.3 : k === 'hop' ? 0.4 : 0.48, r = Math.min(1, this.t / dur);
+        if (k === 'roll') { anim = 'roll'; f = at(r, 8); }
+        else if (k === 'hop') { anim = 'jump'; f = r < 0.5 ? 0 : 1; S.wob.position.y = 1.0 + Math.sin(r * Math.PI) * 0.6; }
+        else { anim = 'dash'; f = r < 0.35 ? 0 : 1; }
       }
-      if (st === 'hurt' || st === 'stun') { pose = 'hurt'; if (st === 'stun') S.roll.rotation.z = Math.sin(E.time * 14) * 0.06; }
-      if (st === 'down' || st === 'faint') { pose = 'hurt'; const k = st === 'faint' ? 1 : this.t < 0.9 ? Math.min(1, this.t / 0.2) : Math.max(0, 1 - (this.t - 0.9) / 0.3); S.roll.rotation.z = k * 1.45; S.roll.position.y = S.h * 0.42 * (1 - k * 0.7); }
-      if (st === 'drink' || st === 'gather') { pose = st === 'gather' ? 'hurt' : 'raise'; }
-      if (st === 'fall') pose = 'dodge';
-      if (st === 'plunge') { pose = 'strike'; aM = this.kind === 'spear' ? -3.0 : -2.9; aO = -2.9; }
-      if (st === 'land') pose = 'dodge';
-      if (st === 'mounted') { pose = this.braced ? 'hurt' : this.stab > 0 ? 'strike' : 'raise'; aM = this.stab > 0 ? -2.9 : 2.0; aO = aM; S.roll.rotation.z = this.braced ? -0.4 : 0; if (EW.hunt && EW.hunt.boss && EW.hunt.boss.thrashing) S.roll.rotation.z += Math.sin(E.time * 26) * 0.25; }
-      S.setFrame(view, pose);
-      // weapon pivots: smooth toward targets, mirrored by the billboard flip
-      this.angMain = st === 'attack' || st === 'dance' ? aM : lerp(this.angMain, aM, Math.min(1, dt * 14));
-      this.angOff = st === 'attack' || st === 'dance' ? aO : lerp(this.angOff, aO, Math.min(1, dt * 14));
-      this.wHolder.rotation.z = this.angMain; this.oHolder.rotation.z = this.angOff;
-      this.wHolder.position.x = push;
-      // greatsword drawn behind the body when idle in front view; spear tip forward in back view
-      this.wHolder.position.z = 0.02;
-      // the off-hand blade hides behind the body in side view unless swinging
-      this.oHolder.visible = !!this.wOff;
-      const tint = this.iframe && st === 'dodge' ? 1.25 : 1;
-      S.mat.color.setScalar(tint);
+      if (st === 'hurt') { anim = 'hurt'; f = 0; }
+      if (st === 'stun') { anim = 'hurt'; f = 0; S.wob.rotation.z = Math.sin(E.time * 14) * 0.06; }
+      if (st === 'down') { anim = 'down'; f = this.t < 0.9 ? at(this.t / 0.25, 4) : 3 - at((this.t - 0.9) / 0.35, 4); }
+      if (st === 'faint') { anim = 'down'; f = 3; }
+      if (st === 'drink') { anim = 'drink'; f = this.t > 0.25 && this.t < 0.85 ? 1 : 0; }
+      if (st === 'gather') { anim = 'gather'; f = 0; }
+      if (st === 'fall') { anim = 'jump'; f = this.vy > 1.5 ? 0 : 1; }
+      if (st === 'plunge') { anim = 'plunge'; f = 0; }
+      if (st === 'land') { anim = 'land'; f = 0; }
+      if (st === 'sheathe') { anim = 'sheathe'; f = at(this.t / SHEATHE, 4); }
+      if (st === 'draw') { anim = 'draw'; f = at(this.t / DRAW[this.kind], 4); }
+      if (st === 'mounted') {
+        anim = this.braced ? 'brace' : this.stab > 0 ? 'mstab' : 'mraise'; f = 0;
+        if (EW.hunt && EW.hunt.boss && EW.hunt.boss.thrashing) S.wob.rotation.z = Math.sin(E.time * 26) * 0.2;
+      }
+      // weapon on the back: the '_s' twin of the animation when there is one
+      if (this.sheathed && st !== 'draw' && S.has(anim + '_s')) anim += '_s';
+      S.show(anim, f);
+      S.mat.color.setScalar(this.iframe && st === 'dodge' ? 1.25 : 1);
     }
   }
   EW.Player = Player;

@@ -1,6 +1,6 @@
 // Boss AI + Body Part Damage — Gravemaw, the Ashen Behemoth (Large class, ~6.5× hunter height).
 // Logic runs in a 3D local frame (+X = forward). Body-part hit spheres are derived from the
-// same animation parameters that pose the painted 2D puppet, so what you see is what you hit.
+// same animation parameters that pose the 3D pixel-art rig (js/art/beast.js), so what you see is what you hit.
 (function () {
   'use strict';
   const EW = (window.EW = window.EW || {});
@@ -34,7 +34,6 @@
   class Gravemaw {
     constructor(home) {
       this.def = EW.data.bosses.gravemaw;
-      this.art = A.gravemaw();
       this.height = 14; this.size = 'large';
       this.maxHp = this.def.hp; this.hp = this.maxHp;
       this.x = home.x; this.z = home.z; this.yaw = Math.PI / 2; this.vy = 0; this.air = 0;
@@ -49,47 +48,12 @@
 
     // ------------------------------------------------------------------ puppet
     buildPuppet() {
-      const s = this.art.side, f = this.art.front, b = this.art.back;
-      const pp = (this.puppet = new EW.Puppet(A.BOSS_PXU));
-      pp.build({
-        side: [
-          { name: 'hindFar', art: s.hindlegFar, at: [-7.2, 8.3], z: -1.2, tint: 0.72 },
-          { name: 'foreFar', art: s.forelegFar, at: [7.4, 8.7], z: -1.2, tint: 0.72 },
-          { name: 'torso', art: s.torso, at: [0, 8], z: 0 },
-          { name: 'core', art: s.core, at: [0, 5.2], z: -0.15, parent: 'torso' },
-          { name: 'plates', art: s.plates, at: [-0.5, 4.3], z: -0.1, parent: 'torso' },
-          { name: 'tail1', art: s.tail1, at: [-9.5, 0.4], z: -0.2, parent: 'torso' },
-          { name: 'tail2', art: s.tail2, at: [-7.6, 0], z: -0.05, parent: 'tail1' },
-          { name: 'head', art: s.head, at: [9, 1.5], z: 0.3, parent: 'torso' },
-          { name: 'horns', art: s.horns, at: [6.2, 2.4], z: -0.05, parent: 'head' },
-          { name: 'hind', art: s.hindleg, at: [-6.6, 8.3], z: 0.9 },
-          { name: 'fore', art: s.foreleg, at: [6.8, 8.7], z: 0.9 },
-        ],
-        front: [
-          { name: 'hindL', art: s.hindlegFar, at: [-4.6, 8.3], z: -1.5, tint: 0.65 },
-          { name: 'hindR', art: s.hindlegFar, at: [4.6, 8.3], z: -1.5, tint: 0.65 },
-          { name: 'torso', art: f.torso, at: [0, 8], z: 0 },
-          { name: 'core', art: s.core, at: [0, 5.6], z: -0.3, parent: 'torso' },
-          { name: 'plates', art: f.plates, at: [0, 4.6], z: -0.2, parent: 'torso' },
-          { name: 'foreL', art: s.foreleg, at: [-4.4, 8.7], z: 0.8 },
-          { name: 'foreR', art: s.foreleg, at: [4.4, 8.7], z: 0.8 },
-          { name: 'head', art: f.head, at: [0, 3.6], z: 1.6, parent: 'torso' },
-          { name: 'horns', art: f.horns, at: [0, 0.8], z: -0.1, parent: 'head' },
-        ],
-        back: [
-          { name: 'foreL', art: s.forelegFar, at: [-4.4, 8.7], z: -1.5, tint: 0.65 },
-          { name: 'foreR', art: s.forelegFar, at: [4.4, 8.7], z: -1.5, tint: 0.65 },
-          { name: 'horns', art: f.horns, at: [0, 13.4], z: -1.2, tint: 0.8 },
-          { name: 'torso', art: b.torso, at: [0, 8], z: 0 },
-          { name: 'core', art: s.core, at: [0, 5.6], z: 0.15, parent: 'torso' },
-          { name: 'plates', art: f.plates, at: [0, 4.4], z: 0.1, parent: 'torso' },
-          { name: 'hindL', art: s.hindleg, at: [-4.6, 8.3], z: 0.6 },
-          { name: 'hindR', art: s.hindleg, at: [4.6, 8.3], z: 0.6 },
-          { name: 'tail', art: b.tail, at: [0, 0.8], z: 0.9, parent: 'torso' },
-        ],
-      });
-      pp.show('side');
-      this.root = pp.root;
+      // a real 3D rig drawn as pixel art in real time (js/art/beast.js) — posed from this.a every frame
+      this.beast = EW.Beast.gravemaw();
+      this.layer = new EW.Beast.PixelLayer({ ppu: 24 });
+      this.layer.scene.add(this.beast.root);
+      this.layer.focus = () => new THREE.Vector3(this.x, this.y + 7, this.z);
+      this.root = new THREE.Group();
       this.shadow = E.shadow(13, 0.45); this.root.add(this.shadow);
       this.mouthGlow = E.glow(0xff7a20, 6, 0); this.root.add(this.mouthGlow);
       this.coreGlow = E.glow(0xff9a40, 9, 0); this.root.add(this.coreGlow);
@@ -99,14 +63,19 @@
     coneDecal() { const m = new THREE.Mesh(new THREE.CircleGeometry(1, 32, -0.6, 1.2).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0xff6a2a, transparent: true, depthWrite: false, opacity: 0, blending: THREE.AdditiveBlending })); E.fxGroup.add(m); return m; }
     laneDecal() { const m = new THREE.Mesh(new THREE.PlaneGeometry(1, 1).translate(0.5, 0, 0).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0xff6a2a, transparent: true, depthWrite: false, opacity: 0, blending: THREE.AdditiveBlending })); E.fxGroup.add(m); return m; }
     dispose() {
-      E.scene.remove(this.root);
+      E.scene.remove(this.root); this.layer.dispose();
       Object.values(this.decals).forEach((d) => E.fxGroup.remove(d));
-      if (this.tailProp) EW.world.group && EW.world.group.remove(this.tailProp);
+      this.tailProp = null;
       E.billboards.delete(this.mouthGlow); E.billboards.delete(this.coreGlow);
     }
 
     // ------------------------------------------------------------------ geometry helpers
-    ground() { let s = 0; for (const [lx, lz] of [[0, 0], [8, 0], [-8, 0], [0, 4], [0, -4]]) { const w = this.toWorld(lx, 0, lz, true); s += EW.world.heightAt(w.x, w.z); } return s / 5; }
+    ground() {
+      // average under the body, but never more than a little above the centre: a head or tail hanging over a
+      // cliff must not lift the whole beast onto the mountain
+      let s = 0; for (const [lx, lz] of [[0, 0], [8, 0], [-8, 0], [0, 4], [0, -4]]) { const w = this.toWorld(lx, 0, lz, true); s += EW.world.heightAt(w.x, w.z); }
+      return Math.min(s / 5, EW.world.heightAt(this.x, this.z) + 0.8);
+    }
     toWorld(lx, ly, lz, flat) { const c = Math.cos(this.yaw), s = Math.sin(this.yaw); return { x: this.x + lx * c + lz * s, y: (flat ? 0 : this.y) + ly, z: this.z - lx * s + lz * c }; }
     toLocal(wx, wz) { const dx = wx - this.x, dz = wz - this.z, c = Math.cos(this.yaw), s = Math.sin(this.yaw); return { x: dx * c - dz * s, z: dx * s + dz * c }; }
     get fwd() { return { x: Math.cos(this.yaw), z: -Math.sin(this.yaw) }; }
@@ -170,27 +139,25 @@
       if (this.phase === 1 && this.hp < this.maxHp * 0.6) { this.phase = 2; this.queueRoar = true; EW.hud && EW.hud.notice('boss.enraged', 'warn'); EW.audio.intensity(1); }
       if (!['topple', 'stun', 'dead', 'intro', 'mounted', 'flee'].includes(this.state) && !this.mount) {
         if (this.stagger >= this.staggerMax) { this.stagger = 0; this.staggerMax += 160; this.enter('topple'); }
-        else if (this.flinchAcc >= 260 && (!this.attack || this.attack.name !== 'leap' || this.attack.t < 0.8)) { this.flinchAcc = 0; this.enter('flinch'); }
+        else if (this.flinchAcc >= 260 && (!this.attack || this.attack.name !== 'leap' || (this.attack.phase === 0 && this.attack.t < 0.8))) { this.flinchAcc = 0; this.enter('flinch'); }
       }
       return { dmg: d, weak: P.hz * (part === 'core' && this.a.plateOpen > 0.5 ? 1.5 : 1) >= 1, broke };
     }
     onBreak(part) {
-      const pp = this.puppet, s = this.art.side, f = this.art.front, b = this.art.back;
       EW.audio.sfx('partBreak'); EW.cam.shake(0.55);
       EW.hud && EW.hud.notice('break.' + part, 'break');
       EW.hunt && EW.hunt.onBreak(part);
       const sp = this.spheres().find((q) => q.part === part) || { x: this.x, y: this.y + 8, z: this.z };
       E.burst(sp.x, sp.y, sp.z, 0xffa040, 40, 10, { size: [0.3, 0.9], up: [3, 10] });
       E.burst(sp.x, sp.y, sp.z, 0xd8ccb0, 20, 8, { size: [0.4, 0.8], grav: 14 });
-      if (part === 'horns') { pp.swap('side', 'horns', s.hornsBroken); pp.swap('front', 'horns', f.hornsBroken); pp.swap('back', 'horns', f.hornsBroken); }
+      this.beast.breakPart(part);
       if (part === 'head') { this.scar = true; }
-      if (part === 'plates') { pp.swap('side', 'plates', s.platesBroken); pp.swap('front', 'plates', f.platesBroken); pp.swap('back', 'plates', f.platesBroken); }
-      if (part === 'forelegs') { pp.swap('side', 'fore', s.forelegBroken); pp.swap('side', 'foreFar', s.forelegFarBroken); pp.swap('front', 'foreL', s.forelegBroken); pp.swap('front', 'foreR', s.forelegBroken); this.enter('topple'); }
+      if (part === 'forelegs') this.enter('topple');
       if (part === 'tail') {
-        pp.swap('side', 'tail1', s.tail1Severed); pp.parts.side.tail2.pivot.visible = false; pp.swap('back', 'tail', b.tailSevered);
-        // severed tail lies on the ground and can be carved
+        // severed tail lies on the ground and can be carved (drawn by the same pixel layer)
         const tw = this.toWorld(-20, 0, 0, true);
-        const g = E.prop(s.tail2.canvas, 4.6, {}); g.position.set(tw.x, EW.world.heightAt(tw.x, tw.z) - 0.6, tw.z); EW.world.group.add(g);
+        const g = this.beast.severedTail(); g.position.set(tw.x, EW.world.heightAt(tw.x, tw.z) + 1.0, tw.z); g.rotation.y = this.yaw + 0.5; this.layer.scene.add(g);
+        g.position.x += Math.cos(this.yaw) * 4; g.position.z -= Math.sin(this.yaw) * 4;
         this.tailProp = g;
         EW.world.interact.push({ id: 'carveTail', x: tw.x, z: tw.z, r: 3.6, y: 2, label: 'prompt.carve', enabled: () => !this.tailCarved, act: () => { this.tailCarved = true; EW.hunt.carve('tail'); g.visible = false; } });
         if (this.state !== 'dead') this.enter('flinch');
@@ -208,6 +175,9 @@
     enter(s) {
       if (this.state === 'flee' && s !== 'rest' && s !== 'dead') this.fleeQueued = true; // interrupted: it tries again
       if (this.attack && s !== 'attack') { this.attack = null; this.clearDecals(); }
+      // any other state while ridden (part break → flinch/topple, low-hp flee, death…) drops the rider
+      // properly — otherwise the player stays frozen in the riding pose on a beast that's no longer 'mounted'
+      if (this.mount && s !== 'mounted') { this.state = s; this.endMount(false); }
       this.state = s; this.st = 0;
       if (s === 'topple') { this.toppleCount++; EW.audio.sfx('stomp', { vol: 1 }); EW.cam.shake(0.6); E.dust(this.x, this.y, this.z, 30, 10); EW.hud && EW.hud.notice('boss.toppled', 'good'); }
       if (s === 'exhausted') EW.hud && EW.hud.notice('boss.exhausted', 'good');
@@ -304,8 +274,14 @@
         }
         case 'stalk': {
           if (this.fleeQueued && EW.world.dens) { this.startFlee(player); break; }
-          if (this.queueRoar) { this.queueRoar = false; this.startAttack('roar'); break; }
+          if (this.queueRoar) {
+            this.queueRoar = false; this.startAttack('roar');
+            // first roar of phase 2 = the enrage moment: cut to a letterboxed cutscene
+            if (this.phase === 2 && !this.enrageCut && EW.hunt && EW.hunt.onEnrage && EW.hunt.onEnrage()) this.enrageCut = true;
+            break;
+          }
           tgt = player; turn = 1.35 * spd;
+          if (EW.hunt && EW.hunt.cine) break; // hold still while a cutscene plays
           const want = 11;
           if (pd > want + 2) move = (pd > 30 ? 8.5 : 5) * limp * spd;
           else if (Math.abs(ang) < 0.5 && pd < 6) move = -2;
@@ -346,13 +322,14 @@
       }
       // turning + locomotion
       if (tgt && turn) { const d = wrap(Math.atan2(-(tgt.z - this.z), tgt.x - this.x) - this.yaw); this.yaw += clamp(d, -turn * dt, turn * dt); }
-      if (move) this.locomote(move * dt);
+      if (move && !this.locomote(move * dt) && this.mount) this.mount.wander = this.wanderPoint();
       if (move) a.walk += dt * Math.abs(move) * 0.55;
       // pose blending
       const k = Math.min(1, dt * (this.state === 'attack' ? 10 : 5));
       for (const key of ['bodyY', 'pitch', 'headDrop', 'jaw', 'tail', 'topple', 'plateOpen', 'glow']) a[key] = lerp(a[key], T[key], key === 'topple' ? Math.min(1, dt * 3) : k);
       for (let i = 0; i < 2; i++) { a.fore[i] = lerp(a.fore[i], T.fore[i], k); a.hind[i] = lerp(a.hind[i], T.hind[i], k); }
-      // vertical (leap)
+      // vertical (leap) — a leap cut short mid-air (flinch, topple, exhaustion…) must still come down
+      if (!(this.attack && this.attack.name === 'leap' && this.attack.phase === 1) && this.air > 0) this.air = Math.max(0, this.air - dt * 26);
       this.y = this.ground() + this.air;
       // footsteps
       if (move && this.state !== 'mounted') { const ph = Math.floor(a.walk * 2 / Math.PI); if (ph !== this.lastStep) { this.lastStep = ph; this.footstep(); } }
@@ -364,10 +341,12 @@
       const f = this.fwd, nx = this.x + f.x * step, nz = this.z + f.z * step;
       const r = Math.hypot(nx, nz);
       const W = EW.world;
-      if ((W.open ? W.open(nx, nz) > 0.35 : r < 84) && W.heightAt(nx, nz) < W.heightAt(this.x, this.z) + 3) { this.x = nx; this.z = nz; }
+      const lead = Math.sign(step) * 9, hx = nx + f.x * lead, hz = nz + f.z * lead;
+      let moved = false;
+      if ((W.open ? W.open(nx, nz) > 0.5 && W.open(hx, hz) > 0.3 : r < 84) && W.heightAt(nx, nz) < W.heightAt(this.x, this.z) + 3) { this.x = nx; this.z = nz; moved = true; }
       // shove around pillars (the boss is too heavy to be stopped by props)
       for (const p of EW.world.pillars) { if (p.broken) continue; const dx = this.x - p.x, dz = this.z - p.z, d = Math.hypot(dx, dz), m = p.r + 4; if (d < m && d > 0.01) { this.x = p.x + (dx / d) * m; this.z = p.z + (dz / d) * m; } }
-      return true;
+      return moved;
     }
     footstep() {
       const w = this.toWorld(7, 0, 0, true);
@@ -604,7 +583,7 @@
 
     // ------------------------------------------------------------------ mounting
     tryPlunge(p) {
-      if (['dormant', 'intro', 'dead', 'mounted'].includes(this.state) || this.air > 1) return false;
+      if (['dormant', 'intro', 'dead', 'mounted'].includes(this.state) || this.air > 1 || !this.canMount()) return false;
       const L = this.toLocal(p.x, p.z);
       const top = this.y + 6 + this.a.bodyY;
       if (L.x > -10 && L.x < 11 && Math.abs(L.z) < 6.5 && p.y < top + 6 && p.y > this.y + 3 && p.y - EW.world.heightAt(p.x, p.z) > 2.5) {
@@ -628,12 +607,23 @@
       EW.audio.sfx('mount'); EW.hud && EW.hud.notice('mount.on', 'good');
       EW.hunt && EW.hunt.onMount();
     }
-    climb(p) { if (this.state === 'dead' || this.mount) return; if (this.state === 'topple' && !this.mount) this.startMount(p); }
+    // a point to thrash toward while ridden: somewhere open in the basin it stands in
+    wanderPoint() {
+      const W = EW.world, zn = W.zoneAt && W.zoneAt(this.x, this.z);
+      for (let i = 0; i < 12; i++) {
+        const an = Math.random() * TAU, r = 14 + Math.random() * 26;
+        const x = (zn ? zn.x : this.x) + Math.cos(an) * Math.min(r, zn ? zn.r * 0.55 : r), z = (zn ? zn.z : this.z) + Math.sin(an) * Math.min(r, zn ? zn.r * 0.55 : r);
+        if (!W.open || W.open(x, z) > 0.85) return { x, z };
+      }
+      return zn ? { x: zn.x, z: zn.z } : { x: this.x, z: this.z };
+    }
+    canMount() { return !this.mount && !this.mountFinish && E.time >= (this.mountCd || 0); }
+    climb(p) { if (this.state === 'dead' || !this.canMount()) return; if (this.state === 'topple') this.startMount(p); }
     tickMount(dt, p, T) {
       const m = this.mount;
       T.headDrop = 1; T.bodyY = -0.2;
       m.next -= dt;
-      if (Math.hypot(m.wander.x - this.x, m.wander.z - this.z) < 6 || Math.random() < dt * 0.3) { const an = Math.random() * TAU, r = 20 + Math.random() * 40; m.wander = { x: Math.cos(an) * r, z: Math.sin(an) * r - 20 }; }
+      if (Math.hypot(m.wander.x - this.x, m.wander.z - this.z) < 6 || Math.random() < dt * 0.3) m.wander = this.wanderPoint();
       if (m.tele > 0) {
         m.tele -= dt; T.headDrop = -2; T.jaw = 1;
         if (m.tele <= 0) { m.thrash = 0.7; this.thrashing = true; EW.audio.sfx('thrash'); EW.cam.shake(0.5); }
@@ -666,77 +656,30 @@
     }
     endMount(thrown) {
       const p = EW.hunt.player; this.mount = null; this.thrashing = false;
+      this.mountCd = E.time + 25; // the beast won't let you back on right away
       const side = this.toWorld(0, 0, 9, true);
       p.place(side.x, side.z); p.y = EW.world.heightAt(side.x, side.z);
       if (thrown) { p.setState('down'); p.hp -= 8; EW.audio.sfx('hurt'); EW.hud && EW.hud.notice('mount.thrown', 'warn'); if (p.hp <= 0) p.faint(); this.enter('stalk'); this.cool = 1.2; }
     }
 
-    // ------------------------------------------------------------------ rendering the puppet
+    // ------------------------------------------------------------------ rendering (pixel-art 3D rig)
     render() {
-      const pp = this.puppet, a = this.a;
-      const B = EW.cam.billboardAngles(), cy = B.yaw;
-      const f = this.fwd, cfx = -Math.sin(cy), cfz = -Math.cos(cy), crx = Math.cos(cy), crz = -Math.sin(cy);
-      const d = f.x * cfx + f.z * cfz, s = f.x * crx + f.z * crz;
-      const view = d > 0.68 ? 'back' : d < -0.68 ? 'front' : 'side';
-      if (view !== pp.view) pp.show(view);
-      pp.bb.rotation.y = cy; pp.bb.rotation.x = -B.pitch * 0.18;
-      const flip = s >= 0 ? 1 : -1;
-      pp.bb.scale.x = view === 'side' ? flip * (0.55 + 0.45 * Math.min(1, Math.abs(s) * 1.25)) : 1;
-      // slide the painted plane toward whichever end faces the lens so the visible head / tail
-      // sits where its hit spheres are (keeps 2D art and 3D collision honest)
-      const shift = -d * (d < 0 ? 9 : 7) * (1 - this.a.topple * 0.4);
+      const a = this.a, bz = this.beast;
       this.root.position.set(this.x, this.y, this.z);
-      pp.bb.position.set(f.x * shift, 0, f.z * shift);
-      const P = pp.parts[view];
-      const walk = a.walk, sw = Math.sin(walk * 2), sw2 = Math.sin(walk * 2 + Math.PI);
-      const moving = this.state === 'stalk' || this.state === 'mounted' || (this.attack && this.attack.name === 'charge');
-      const legA = moving ? sw * 0.22 : 0, legB = moving ? sw2 * 0.22 : 0;
-      const bob = moving ? Math.abs(Math.sin(walk * 2)) * 0.25 : Math.sin(E.time * 1.4) * 0.12;
-      const T = P.torso.pivot;
-      T.position.y = 8 + a.bodyY + bob - a.topple * 2.6; T.rotation.z = a.pitch * -1 + a.topple * (view === 'side' ? 0.08 : 0);
-      if (view === 'side') {
-        T.position.x = 0;
-        P.head.pivot.rotation.z = -Math.atan2(a.headDrop, 6.5);
-        P.horns.pivot.position.set(6.2, 2.4, -0.05);
-        P.tail1.pivot.rotation.z = 0.28 + (moving ? Math.sin(walk) * 0.06 : Math.sin(E.time) * 0.04) + a.tail * 0.3;
-        P.tail2.pivot.rotation.z = 0.14 + a.tail * 0.3;
-        const legY = (base) => base - a.topple * 3.2;
-        P.fore.pivot.rotation.z = legA - a.fore[0] * 0.9; P.fore.pivot.position.y = legY(8.7) + Math.max(0, -a.fore[0]) * 1.5;
-        P.foreFar.pivot.rotation.z = legB - a.fore[1] * 0.9; P.foreFar.pivot.position.y = legY(8.7) + Math.max(0, -a.fore[1]) * 1.5;
-        P.hind.pivot.rotation.z = legB + a.hind[0] * 0.8; P.hind.pivot.position.y = legY(8.3);
-        P.hindFar.pivot.rotation.z = legA + a.hind[1] * 0.8; P.hindFar.pivot.position.y = legY(8.3);
-        P.fore.pivot.scale.y = P.foreFar.pivot.scale.y = P.hind.pivot.scale.y = P.hindFar.pivot.scale.y = lerp(1, 0.6, a.topple);
-        // head art: open jaw / scarred variants
-        const headArt = this.art.side[(this.scar ? 'headScar' : 'head') + (a.jaw > 0.5 ? 'Open' : '')];
-        pp.swap('side', 'head', headArt);
-        P.plates.pivot.position.y = 4.3 + a.plateOpen * 0.8; P.plates.pivot.rotation.z = a.plateOpen * Math.sin(E.time * 30) * 0.02;
-      } else if (view === 'front') {
-        P.head.pivot.position.y = 3.6 - a.headDrop * 0.75; P.head.pivot.scale.setScalar(1 + Math.max(0, a.headDrop) * 0.02);
-        P.foreL.pivot.rotation.z = legA * 0.5 + a.fore[0] * 0.5; P.foreR.pivot.rotation.z = -legB * 0.5 - a.fore[1] * 0.5;
-        P.foreL.pivot.position.y = 8.7 - a.topple * 3 + Math.max(0, -a.fore[0]) * 1.6; P.foreR.pivot.position.y = 8.7 - a.topple * 3 + Math.max(0, -a.fore[1]) * 1.6;
-        P.hindL.pivot.position.y = P.hindR.pivot.position.y = 8.3 - a.topple * 3;
-        pp.swap('front', 'head', this.art.front[(this.scar ? 'headScar' : 'head') + (a.jaw > 0.5 ? 'Open' : '')]);
-        P.plates.pivot.position.y = 4.6 + a.plateOpen * 0.8;
-      } else {
-        P.tail.pivot.rotation.z = a.tail * 0.5 + (moving ? Math.sin(walk) * 0.08 : 0);
-        P.hindL.pivot.rotation.z = legA * 0.5; P.hindR.pivot.rotation.z = -legB * 0.5;
-        P.hindL.pivot.position.y = P.hindR.pivot.position.y = 8.3 - a.topple * 3;
-        P.horns.pivot.position.y = 13.4 + a.bodyY - a.headDrop * 0.6;
-        P.plates.pivot.position.y = 4.4 + a.plateOpen * 0.8;
-      }
-      P.core.pivot.visible = this.parts.plates.broken || a.plateOpen > 0.3;
-      P.core.pivot.scale.setScalar(0.9 + Math.sin(E.time * 6) * 0.08 + a.plateOpen * 0.3);
-      // glows
-      const head = this.headWorld();
-      const mouth = this.toWorld(18.5 - a.headDrop * 0.3, 0, 0);
-      this.mouthGlow.position.set(mouth.x - this.x, head.y - this.y - 1, mouth.z - this.z);
-      const core = this.toWorld(0, 13.5 + a.bodyY - a.topple * 5, 0);
-      this.coreGlow.position.set(core.x - this.x, core.y - this.y, core.z - this.z);
+      bz.root.position.set(this.x, this.y, this.z); bz.root.rotation.set(0, this.yaw, 0);
+      const moving = this.state === 'stalk' || this.state === 'mounted' || this.state === 'flee' || (this.attack && this.attack.name === 'charge');
+      bz.pose(a, { moving, time: E.time, breathe: !moving, coreOpen: this.parts.plates.broken || a.plateOpen > 0.3 });
+      // glows sit at the real mouth / core, nudged toward the camera so the body doesn't swallow them
+      const cam = E.camera.position, toCam = (p, k) => { const d = new THREE.Vector3().subVectors(cam, p).normalize(); return p.addScaledVector(d, k); };
+      const m = toCam(bz.mouthWorld(), 2.5), c = toCam(bz.coreWorld(), 2.5);
+      this.mouthGlow.position.set(m.x - this.x, m.y - this.y, m.z - this.z);
+      this.coreGlow.position.set(c.x - this.x, c.y - this.y, c.z - this.z);
       if (this.parts.plates.broken && this.state !== 'dead') this.coreGlow.material.opacity = Math.max(this.coreGlow.material.opacity, 0.45 + Math.sin(E.time * 4) * 0.15);
-      // tint: hit flash, enrage warmth, death fade
+      // tint: area light, hit flash, enrage warmth, death fade
       const fl = this.flash > 0 ? 1.7 : 1, dead = this.state === 'dead' ? Math.max(0.55, 1 - this.st * 0.1) : 1;
-      const r = E.tint.r * fl * dead * (this.phase === 2 ? 1.06 : 1), g = E.tint.g * fl * dead * (this.phase === 2 ? 0.94 : 1), b = E.tint.b * fl * dead * (this.phase === 2 ? 0.9 : 1);
-      pp.each((pt) => { const k = pt.mesh.userData.tint; pt.mesh.material.color.setRGB(r * k, g * k, b * k); });
+      bz.U.tint.value.setRGB(E.tint.r * fl * dead * (this.phase === 2 ? 1.06 : 1), E.tint.g * fl * dead * (this.phase === 2 ? 0.94 : 1), E.tint.b * fl * dead * (this.phase === 2 ? 0.9 : 1));
+      const fog = E.scene.fog;
+      if (fog) { bz.U.fogColor.value.copy(fog.color); bz.U.fogNear.value = fog.near; bz.U.fogFar.value = fog.far; }
       this.shadow.position.y = -this.air + 0.08; this.shadow.scale.set(26 * (1 - this.air / 30), 1, 26 * 0.45 * (1 - this.air / 30));
       this.shadow.rotation.y = this.yaw;
     }

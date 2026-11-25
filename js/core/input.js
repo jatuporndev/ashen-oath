@@ -6,8 +6,8 @@
   const EW = (window.EW = window.EW || {});
   const PAD = { A: 0, B: 1, X: 2, Y: 3, LB: 4, RB: 5, LT: 6, RT: 7, VIEW: 8, MENU: 9, LS: 10, RS: 11, UP: 12, DOWN: 13, LEFT: 14, RIGHT: 15 };
   const GLYPH = {
-    kb: { attack: 'LMB', dodge: 'Space', skill: 'F', interact: 'E', potion: 'R', lockon: 'Q', pause: 'Esc', confirm: 'Enter', back: 'Esc', camera: 'Mouse', move: 'W A S D', sprint: 'Shift', zoom: 'Wheel', adjust: '← →', advance: 'E', brace: 'Space', tabs: 'Q  E', alt: 'X' },
-    pad: { attack: 'X', dodge: 'B', skill: 'Y', interact: 'A', potion: 'RB', lockon: 'LT', pause: 'Menu', confirm: 'A', back: 'B', camera: 'RS', move: 'LS', sprint: 'L3', zoom: 'D-Pad ↕', adjust: '◂ ▸', advance: 'A', brace: 'B', tabs: 'LB  RB', alt: 'X' },
+    kb: { attack: 'LMB', dodge: 'Ctrl', jump: 'Space', skill: 'F', interact: 'E', potion: 'R', lockon: 'Q', pause: 'Esc', confirm: 'Enter', back: 'Esc', camera: 'Mouse', move: 'W A S D', sprint: 'Shift', zoom: 'Wheel', adjust: '← →', advance: 'E', brace: 'Space', tabs: 'Q  E', alt: 'X' },
+    pad: { attack: 'X', dodge: 'B', jump: 'LB', skill: 'Y', interact: 'A', potion: 'RB', lockon: 'LT', pause: 'Menu', confirm: 'A', back: 'B', camera: 'RS', move: 'LS', sprint: 'L3', zoom: 'D-Pad ↕', adjust: '◂ ▸', advance: 'A', brace: 'B', tabs: 'LB  RB', alt: 'X' },
   };
   const dz = (v, d = 0.18) => (Math.abs(v) < d ? 0 : (v - Math.sign(v) * d) / (1 - d));
 
@@ -35,7 +35,9 @@
         case 'attack': return this.mouse[0] || b[PAD.X] || b[PAD.RT];
         case 'skill': return k.has('KeyF') || b[PAD.Y];
         case 'sprint': return k.has('ShiftLeft') || k.has('ShiftRight') || b[PAD.LS];
-        case 'dodge': case 'brace': return k.has('Space') || b[PAD.B];
+        case 'dodge': return k.has('ControlLeft') || k.has('ControlRight') || k.has('KeyC') || b[PAD.B];
+        case 'jump': return k.has('Space') || b[PAD.LB];
+        case 'brace': return k.has('Space') || k.has('ControlLeft') || k.has('ControlRight') || b[PAD.B];
         case 'interact': return k.has('KeyE') || b[PAD.A];
         case 'potion': return k.has('KeyR') || b[PAD.RB];
         case 'lockon': return k.has('KeyQ') || b[PAD.LT];
@@ -59,7 +61,7 @@
       this.padMove = { x: lx, y: -ly };
       this.padLookX += rx * dt * 900; this.padLookY += ry * dt * 600;
       if (btn[PAD.UP]) this.zoom -= dt * 4; if (btn[PAD.DOWN]) this.zoom += dt * 4;
-      const PE = { [PAD.X]: 'attack', [PAD.RT]: 'attack', [PAD.B]: 'dodge', [PAD.Y]: 'skill', [PAD.RB]: 'potion' };
+      const PE = { [PAD.X]: 'attack', [PAD.RT]: 'attack', [PAD.B]: 'dodge', [PAD.LB]: 'jump', [PAD.Y]: 'skill', [PAD.RB]: 'potion' };
       for (let i = 0; i < btn.length; i++) if (btn[i] && !this.padBtn[i]) { if (PE[i]) this.edges.add(PE[i]); this.onRaw?.({ src: 'pad', btn: i }); }
       this.padBtn = btn;
       // menu navigation with stick / d-pad auto-repeat
@@ -83,12 +85,26 @@
     const c = document.querySelector('canvas'); if (!c || !c.requestPointerLock) return;
     try {
       const r = c.requestPointerLock({ unadjustedMovement: true });
-      if (r && r.catch) r.catch(() => { try { const r2 = c.requestPointerLock(); if (r2 && r2.catch) r2.catch(() => {}); } catch (e) { /* not allowed yet */ } });
-    } catch (e) { /* not allowed yet */ }
+      if (r && r.catch) r.catch((err) => {
+        if (err && err.name === 'NotSupportedError') { try { const r2 = c.requestPointerLock(); if (r2 && r2.catch) r2.catch(() => retryLock()); } catch (e) { retryLock(); } }
+        else retryLock();
+      });
+    } catch (e) { retryLock(); }
   };
   input.unlock = () => { if (document.pointerLockElement) document.exitPointerLock(); };
+  // Chrome refuses a re-lock that comes too soon after the last unlock (e.g. resuming from pause right
+  // after Esc) and the cursor would stay free mid-fight — retry a few times while the click's user
+  // activation is still valid (~5 s)
+  let retryT = null, retries = 0;
+  const retryLock = () => {
+    if (retryT || document.pointerLockElement || !input.canLock() || retries >= 4) return;
+    retries++;
+    retryT = setTimeout(() => { retryT = null; input.lock(); }, 700);
+  };
+  document.addEventListener('pointerlockerror', retryLock);
   document.addEventListener('pointerlockchange', () => {
     document.body.classList.toggle('mouse-locked', !!document.pointerLockElement);
+    if (document.pointerLockElement) retries = 0;
     if (!document.pointerLockElement) { input.lockLostAt = performance.now(); input.mouse = [false, false, false]; input.onLockLost?.(); }
   });
 
@@ -97,7 +113,10 @@
     input.setDevice('kb'); input.keys.add(e.code);
     // the Esc that released the cursor already opened the pause menu — don't let it close it again
     if (e.code === 'Escape' && performance.now() - input.lockLostAt < 300) return;
-    if (!e.repeat) { const a = { Space: 'dodge', KeyF: 'skill', KeyR: 'potion' }[e.code]; if (a) input.edges.add(a); }
+    // Ctrl is the roll: stop the browser's Ctrl shortcuts (Ctrl+S, Ctrl+D, Ctrl+A …) while a game key is held.
+    // Ctrl+W cannot be stopped by a page — main.js asks before the tab closes mid-game instead.
+    if (e.ctrlKey && /^(Key[WASDQERFCPGHJKL]|Space|Digit\d)$/.test(e.code)) e.preventDefault();
+    if (!e.repeat) { const a = { Space: 'jump', ControlLeft: 'dodge', ControlRight: 'dodge', KeyC: 'dodge', KeyF: 'skill', KeyR: 'potion' }[e.code]; if (a) input.edges.add(a); }
     input.onRaw?.({ src: 'kb', code: e.code, repeat: e.repeat });
     if (e.code !== 'Escape') input.lock();
   });

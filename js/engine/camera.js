@@ -21,7 +21,7 @@
   };
   C.shake = (amt) => { if (EW.save.setting('shake')) C.trauma = Math.min(1, C.trauma + amt); };
   // cinematic: { pos:Vector3, look:Vector3, t, dur, ease } — overrides follow until done
-  C.cinematic = (from, to, dur, onDone) => { C.cine = { from, to, t: 0, dur, onDone }; };
+  C.cinematic = (from, to, dur, onDone, track) => { C.cine = { from, to, t: 0, dur, onDone, track }; };
   C.endCinematic = () => { C.cine = null; };
 
   function place(dt) {
@@ -54,6 +54,10 @@
       const k = Math.min(1, c.t / c.dur), e = k * k * (3 - 2 * k);
       cam.position.lerpVectors(c.from.pos, c.to.pos, e);
       const lk = new THREE.Vector3().lerpVectors(c.from.look, c.to.look, e);
+      if (c.track) lk.add(c.track()); // live offset: keep a moving subject framed
+      // mouse moved during a cutscene must not pile up and spin the camera when it ends
+      I.consumeLook(); I.consumeZoom(); C.pendX = C.pendY = 0;
+      if (C.ground) { const g = C.ground(cam.position.x, cam.position.z) + 1.2; if (cam.position.y < g) cam.position.y = g; }
       const sh = C.trauma * C.trauma; cam.position.x += Math.sin(E.time * 37) * sh * 0.6; cam.position.y += Math.sin(E.time * 48) * sh * 0.45;
       cam.lookAt(lk);
       C.trauma = Math.max(0, C.trauma - dt * 1.2);
@@ -79,9 +83,13 @@
     if (b && b.engaged) {
       // dynamic framing: aim between hunter and boss; pull back for size + separation
       const dx = b.x - p.x, dz = b.z - p.z, sep = Math.hypot(dx, dz);
-      const w = Math.min(0.42, 0.18 + b.height / 80);
-      tx = lerp(p.x, b.x, w); tz = lerp(p.z, b.z, w); ty = lerp(p.y + 1.6, b.y + b.height * 0.45, w * 0.9);
-      want = Math.max(C.dist, Math.min(C.maxDist + b.height, b.height * 1.25 + sep * 0.45));
+      // framing fades out as the beast gets far away (leaps off, flees): the hunter always stays the anchor
+      const far = Math.max(0, Math.min(1, (sep - 28) / 22));
+      const w = Math.min(0.42, 0.18 + b.height / 80) * (1 - far);
+      // the beast's height pull is capped so a jump never drags the lens into the sky
+      const by = Math.min(b.y + b.height * 0.45, p.y + 1.6 + b.height * 0.6);
+      tx = lerp(p.x, b.x, w); tz = lerp(p.z, b.z, w); ty = lerp(p.y + 1.6, by, w * 0.9);
+      want = lerp(Math.max(C.dist, Math.min(C.maxDist + b.height, b.height * 1.25 + sep * 0.45)), C.dist, far);
       if (C.lock) C.yaw = angLerp(C.yaw, Math.atan2(-dx, -dz), Math.min(1, dt * 3.2));
       else if (EW.save.setting('lockAssist') && sep < b.height * 3) {
         // gentle assist: nudge the boss toward the frame when it drifts off-screen

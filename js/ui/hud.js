@@ -9,6 +9,41 @@
   const HUD = (EW.hud = { root, nums: [] });
 
   const el = {};
+
+  // tiny line icons for the station signs
+  const MK_ICON = {
+    board: '<path d="M5 3h14v18H5z"/><path d="M12 7v6M12 16.5v.5"/>',
+    master: '<path d="M12 3l2.6 5.3 5.9.9-4.3 4.1 1 5.8L12 16.4 6.8 19.1l1-5.8L3.5 9.2l5.9-.9z"/>',
+    smith: '<path d="M4 20l8.5-8.5"/><path d="M11 5l3-2 7 7-2 3z"/><path d="M12.5 6.5l5 5"/>',
+    armorer: '<path d="M12 3l7 3v6c0 4.5-3.2 7.7-7 9-3.8-1.3-7-4.5-7-9V6z"/><path d="M12 7v10"/>',
+    chest: '<path d="M4 10h16v10H4z"/><path d="M4 10a8 5 0 0 1 16 0"/><path d="M11 13h2v3h-2z"/>',
+    gate: '<path d="M5 21V9a7 7 0 0 1 14 0v12"/><path d="M9 21v-8M15 21v-8M12 21V8"/>',
+  };
+  const mkIcon = (k) => { const s = h('span.mk-ico'); s.innerHTML = `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round" stroke-linecap="round">${MK_ICON[k] || ''}</svg>`; return s; };
+  const markers = new Map();
+  function updateMarkers(ctx) {
+    const W = EW.world, list = (EW.game && EW.game.state === 'hub' && W.markers) || [];
+    const live = new Set(list);
+    for (const [m, e] of markers) if (!live.has(m)) { e.remove(); markers.delete(m); }
+    const p = ctx.player, it = ctx.interact, placed = [];
+    // nearest first; a farther sign that would overlap a nearer one on screen is hidden (no stacking)
+    const order = list.map((m) => [m, Math.hypot(p.x - m.x, p.z - m.z)]).sort((x, y) => x[1] - y[1]);
+    for (const [m] of order) {
+      let e = markers.get(m);
+      if (!e) { e = h('div.mk', mkIcon(m.icon), h('div.mk-t', h('div.mk-n'), h('div.mk-s'))); e.__lang = null; el.markers.append(e); markers.set(m, e); }
+      if (e.__lang !== EW.lang) { e.__lang = EW.lang; e.querySelector('.mk-n').textContent = t(m.name); e.querySelector('.mk-s').textContent = t(m.sub); }
+      const d = Math.hypot(p.x - m.x, p.z - m.z);
+      const pr = E.project(m.x, EW.world.heightAt(m.x, m.z) + m.y + Math.sin(E.time * 2 + m.x) * 0.12, m.z);
+      const near = it && it.id === m.id; // the interaction prompt already sits there
+      let vis = pr.ok && d < 46 && !near;
+      if (vis && placed.some((q) => Math.abs(q.x - pr.x) < 150 && Math.abs(q.y - pr.y) < 58)) vis = false;
+      if (vis) placed.push(pr);
+      e.classList.toggle('on', vis);
+      e.classList.toggle('hot', !!(m.hot && m.hot()));
+      e.classList.toggle('far', d > 24);
+      if (vis) e.style.transform = `translate(${pr.x}px, ${pr.y}px)`;
+    }
+  }
   function build() {
     root.replaceChildren(
       (el.vitals = h('div.vitals',
@@ -20,6 +55,7 @@
       (el.potion = h('div.item-slot', (el.potIcon = EW.ui.matIcon('potion')), (el.potN = h('span.n')), EW.ui.glyph('potion'))),
       (el.quest = h('div.quest-info', (el.qName = h('div.q-name')), h('div.q-row', (el.qTime = h('span.q-time')), (el.qFaints = h('span.q-faints')))) ),
       (el.boss = h('div.bossplate', (el.bossName = h('div.bp-name')), h('div.bp-orn'), (el.bossState = h('div.bp-state')))),
+      (el.markers = h('div.markers')),
       (el.prompt = h('div.prompt')),
       (el.notices = h('div.notices')),
       (el.tips = h('div.tips')),
@@ -91,6 +127,7 @@
       if (m) { el.mFill.style.width = Math.min(100, m.meter) + '%'; el.mBrace.classList.toggle('on', m.tele > 0 || m.thrash > 0); el.mBrace.classList.toggle('ok', !!p.braced); }
       el.lock.style.display = 'none';
     } else { el.boss.classList.remove('on'); el.reticle.style.display = 'none'; el.mount.classList.remove('on'); }
+    updateMarkers(ctx);
     // interaction prompt
     const it = ctx.interact;
     if (it) {

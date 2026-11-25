@@ -54,8 +54,11 @@
       const hd = this.hands[view][pose];
       const toLocal = (p) => [(p[0] / this.frameW - 0.5) * this.w, (1 - p[1] / this.frameH) * this.h - this.h * 0.42];
       const m = toLocal(hd.main), o = toLocal(hd.off);
-      this.main.position.set(m[0], m[1], 0.06);
-      this.off.position.set(o[0], o[1], view === 'side' ? -0.06 : 0.06);
+      // seen from behind, the hands (and what they hold) are on the far side of the body:
+      // put them behind the sprite plane so the weapon isn't drawn pasted onto the back
+      const behind = view === 'back';
+      this.main.position.set(m[0], m[1], behind ? -0.06 : 0.06);
+      this.off.position.set(o[0], o[1], view === 'side' || behind ? -0.06 : 0.06);
     }
     billboard(yaw, tilt) { this.bb.rotation.y = yaw; this.bb.rotation.x = tilt; }
   }

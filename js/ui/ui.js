@@ -45,6 +45,33 @@
     root.setProperty('--tex-crest', url(A.crest(220)));
   };
 
+  // ------------------------------------------------------------------ the smith at work
+  // shown while a new hero sheet is baked in slices (weapon swap / upgrade, armour change): the hammer
+  // rings on the anvil in time with the animation and a thin bar fills — the game never looks frozen.
+  UI.busy = false;
+  UI.forging = (job, what = 'weapon') => {
+    if (!job) return Promise.resolve();
+    const fill = h('span.fg-fill'), pct = h('span.fg-pct', '0%');
+    const art = h('div.fg-art'); art.innerHTML = '<svg viewBox="0 0 120 90" width="150" height="112" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linejoin="round" stroke-linecap="round">'
+      + '<path class="fg-anvil" d="M22 52h70c0 8-8 12-18 12v8h10v6H36v-6h10v-8c-14 0-24-6-24-12z"/><path class="fg-anvil" d="M92 52l14-4"/>'
+      + '<g class="fg-hammer"><path d="M104 40H66"/><path d="M56 30h10v20H56z"/></g>'
+      + '<g class="fg-sparks"><circle cx="54" cy="48" r="1.6"/><circle cx="46" cy="40" r="1.2"/><circle cx="62" cy="38" r="1.3"/><circle cx="40" cy="47" r="1"/></g></svg>';
+    const el = h('div.forging', h('div.fg-panel', art, h('div.fg-title', t('forge.busy.' + what)), h('div.fg-sub', t('forge.busy.sub')), h('div.fg-bar', fill), pct));
+    document.body.append(el); requestAnimationFrame(() => el.classList.add('on'));
+    UI.busy = true;
+    const ring = setInterval(() => EW.audio.sfx('anvil', { vol: 0.32 }), 560); // in time with the hammer (0.56 s)
+    let raf = 0;
+    const tick = () => { const k = Math.round(job.progress() * 100); fill.style.width = k + '%'; pct.textContent = k + '%'; raf = requestAnimationFrame(tick); };
+    tick();
+    const t0 = performance.now();
+    const end = () => new Promise((res) => setTimeout(res, Math.max(0, 700 - (performance.now() - t0)))).then(() => {
+      clearInterval(ring); cancelAnimationFrame(raf); UI.busy = false;
+      EW.audio.sfx('anvil', { vol: 0.6 });
+      el.classList.remove('on'); setTimeout(() => el.remove(), 400);
+    });
+    return job.promise.then(end, (e) => { end(); throw e; });
+  };
+
   // ------------------------------------------------------------------ input routing
   const layer = document.getElementById('ui');
   const stack = [];
@@ -53,7 +80,7 @@
   const screens = (UI.screens = {});
   EW.input.onRaw = (r) => {
     EW.audio.unlock();
-    if (r.up) return;
+    if (r.up || UI.busy) return;
     const s = top();
     if (s) {
       let ev = null;
@@ -269,7 +296,7 @@
         body.append(selectRow({ label: t('set.lang'), desc: t('set.lang.d'), options: [{ value: 'th', label: 'ไทย' }, { value: 'en', label: 'English' }], get: () => EW.lang, set: (v) => { EW.setLang(v); } }));
       }
       if (k === 'controls') {
-        const rows = [['move', 'ctl.move'], ['camera', 'ctl.camera'], ['zoom', 'ctl.zoom'], ['attack', 'ctl.attack'], ['skill', 'ctl.skill'], ['dodge', 'ctl.dodge'], ['sprint', 'ctl.sprint'], ['potion', 'ctl.potion'], ['interact', 'ctl.interact'], ['lockon', 'ctl.lockon'], ['pause', 'ctl.pause']];
+        const rows = [['move', 'ctl.move'], ['camera', 'ctl.camera'], ['zoom', 'ctl.zoom'], ['attack', 'ctl.attack'], ['skill', 'ctl.skill'], ['dodge', 'ctl.dodge'], ['jump', 'ctl.jump'], ['sprint', 'ctl.sprint'], ['potion', 'ctl.potion'], ['interact', 'ctl.interact'], ['lockon', 'ctl.lockon'], ['pause', 'ctl.pause']];
         body.append(...rows.map(([a, key]) => { const el = rowShell(t(key), t(key + '.d')); el.append(h('span.value', UI.glyph(a))); return el; }));
         body.append(h('div.weapon-notes', EW.weaponKinds.map((w) => h('div.wn', h('div.wn-title', t('wpn.' + w)), h('div.wn-body', t('wpn.' + w + '.controls'))))));
       }
@@ -307,20 +334,29 @@
     constructor() { super('questboard', 'board-screen'); }
     build() {
       const qs = EW.data.quests, cur = EW.game.quest;
+      // the small notes only pick a writ; the big sheet carries the Accept button
       const list = h('div.notes', qs.map((q, i) => {
         const b = EW.data.bosses[q.boss];
         const el = h('button.note', { 'data-focus': true, type: 'button', style: { '--rot': ((i % 2 ? 1 : -1) * 1.4) + 'deg' } }, h('span.pin'), h('span.note-rank', stars(b.stars)), h('span.note-name', t('boss.' + q.boss + '.quest')), h('span.note-loc', t('area.' + q.field)), cur && cur.id === q.id ? h('span.note-taken', t('qb.accepted')) : null);
-        el.__q = q; el.__activate = () => this.accept(q);
+        el.__q = q; el.__activate = () => { this.show(q); this.focusAction(); };
         return el;
       }));
       this.detail = h('div.notice');
+      this.action = h('button.qb-accept', { 'data-focus': true, type: 'button' });
+      this.action.__activate = () => this.accept(this.sel);
+      const body = h('div.board-body', list, h('div.notice-wrap', this.detail, h('div.qb-actions', this.action)));
       this.el.replaceChildren(h('div.scrim'),
-        h('div.board', h('div.board-head', h('div.board-title', t('qb.title')), h('div.board-sub', t('qb.sub'))), h('div.board-body', list, this.detail)),
-        hints([['confirm', cur ? 'qb.cancel' : 'qb.accept'], ['back', 'ui.back', () => this.back()]]));
-      this.setNav(list, { onFocus: (el) => this.show(el.__q) });
+        h('div.board', h('div.board-head', h('div.board-title', t('qb.title')), h('div.board-sub', t('qb.sub'))), body),
+        hints([['confirm', 'qb.pick'], ['back', 'ui.back', () => this.back()]]));
+      this.setNav(body, { onFocus: (el) => { if (el.__q) this.show(el.__q); } });
     }
+    focusAction() { const i = this.nav.items().indexOf(this.action); if (i >= 0) this.nav.focus(i); }
     show(q) {
+      this.sel = q; this.arm = false;
       const b = EW.data.bosses[q.boss], cur = EW.game.quest;
+      const taken = cur && cur.id === q.id;
+      this.action.textContent = taken ? t('qb.cancel') : t('qb.accept');
+      this.action.classList.toggle('cancel', !!taken); this.action.classList.remove('armed');
       const portrait = icon('portrait:' + q.boss, () => A.bossPortrait(A.gravemaw(), 560, 300));
       portrait.className = 'portrait';
       const atks = ['swipe', 'stomp', 'tail', 'charge', 'breath', 'leap', 'vent', 'roar'];
@@ -335,12 +371,18 @@
           h('div.n-block', h('div.n-k', t('qb.weak')), h('div.weak', b.weak.map(([p, n]) => h('div.weak-i', h('span', t('part.' + p)), stars(n, 3))))),
           h('div.n-block', h('div.n-k', t('qb.rewards')), h('div.rewards', h('div.rw', UI.matIcon('crowns'), h('span', q.crowns + ' ' + t('mat.crowns'))), ...['gm_hide', 'gm_plate', 'gm_horn', 'gm_core'].map((m) => h('div.rw', UI.matIcon(m), h('span', t('mat.' + m))))))),
         h('div.n-diff', h('span', t('qb.threat')), stars(b.stars)),
-        cur && cur.id === q.id ? h('div.n-stamp', t('qb.accepted')) : null);
+        taken ? h('div.n-stamp', t('qb.accepted')) : null);
     }
+    // no full-screen confirm: accepting closes the board (the HUD notice + guildmaster line confirm it);
+    // cancelling is a two-tap on the same button
     accept(q) {
+      if (!q) return;
       const cur = EW.game.quest;
-      if (cur && cur.id === q.id) { UI.open('confirm', { title: t('qb.cancel.q'), body: t('qb.cancel.body'), yes: () => { EW.game.cancelQuest(); this.build(); } }); return; }
-      UI.open('confirm', { title: t('qb.accept.q', { name: t('boss.' + q.boss) }), body: t('qb.accept.body'), yesLabel: t('qb.accept'), yes: () => { EW.game.acceptQuest(q); UI.close(); } });
+      if (cur && cur.id === q.id) {
+        if (!this.arm) { this.arm = true; this.action.classList.add('armed'); this.action.textContent = t('qb.cancel.again'); EW.audio.sfx('uiMove'); clearTimeout(this.armT); this.armT = setTimeout(() => { if (this.sel === q) this.show(q); }, 2600); return; }
+        EW.game.cancelQuest(); this.build(); return;
+      }
+      EW.game.acceptQuest(q); UI.close();
     }
     back() { EW.audio.sfx('uiBack'); UI.close(); }
   }
@@ -381,12 +423,12 @@
           h('div.sd-k', t('ws.moves')), h('p.sd-moves', t('wpn.' + k + '.controls')),
           next ? h('div.sd-up', h('div.sd-k', lvl === 3 ? t('ws.forge', { name: t('wpn.' + k + '.ember') }) : t('ws.upgradeTo', { n: lvl + 1 })), costList(next), h('div.sd-can' + (PR.canAfford(next) ? '' : '.no'), PR.canAfford(next) ? t('ws.ready') : t('ws.missing'))) : h('div.sd-max', t('ws.max'))));
     }
-    act(k) { if (EW.save.game.weapon === k) { EW.audio.sfx('uiBack', { vol: 0.4 }); return; } EW.progress.equipWeapon(k); EW.game.player.setWeapon(k); EW.audio.sfx('anvil', { vol: 0.5 }); UI.toast(t('ws.equippedT', { name: t(this.wname(k)) })); this.build(); }
+    act(k) { if (EW.save.game.weapon === k) { EW.audio.sfx('uiBack', { vol: 0.4 }); return; } EW.progress.equipWeapon(k); this.build(); const done = () => { UI.toast(t('ws.equippedT', { name: t(this.wname(k)) })); }; const job = EW.game.player.setWeapon(k); if (job) UI.forging(job, 'weapon').then(done); else { EW.audio.sfx('anvil', { vol: 0.5 }); done(); } }
     alt() {
       const el = this.nav.current(); if (!el) return; const k = el.__k, PR = EW.progress, c = PR.nextWeaponCost(k);
       if (!c) return;
       if (!PR.canAfford(c)) { EW.audio.sfx('fail', { vol: 0.5 }); UI.toast(t('ws.missing'), 'bad'); return; }
-      UI.open('confirm', { title: t('ws.confirm', { name: t(this.wname(k)) }), body: t('ws.confirm.body'), yes: () => { if (PR.upgradeWeapon(k)) { EW.audio.sfx('anvil'); setTimeout(() => EW.audio.sfx('anvil'), 260); UI.toast(t('ws.done', { name: t(this.wname(k)), n: PR.weaponLvl(k) }), 'good'); if (EW.save.game.weapon === k) EW.game.player.setWeapon(k); this.build(); } } });
+      UI.open('confirm', { title: t('ws.confirm', { name: t(this.wname(k)) }), body: t('ws.confirm.body'), yes: () => { if (PR.upgradeWeapon(k)) { EW.audio.sfx('anvil'); setTimeout(() => EW.audio.sfx('anvil'), 260); UI.toast(t('ws.done', { name: t(this.wname(k)), n: PR.weaponLvl(k) }), 'good'); if (EW.save.game.weapon === k) UI.forging(EW.game.player.setWeapon(k), 'weapon'); this.build(); } } });
     }
     back() { EW.audio.sfx('uiBack'); UI.close(); }
   }
@@ -429,11 +471,11 @@
       const PR = EW.progress, a = EW.data.armor[id];
       if (!PR.owns(id)) {
         if (!PR.canAfford(a.cost)) { EW.audio.sfx('fail', { vol: 0.5 }); UI.toast(t('ws.missing'), 'bad'); return; }
-        UI.open('confirm', { title: t('as.craftQ', { name: t('arm.' + id) }), body: t('as.craftBody'), yes: () => { if (PR.craftArmor(id)) { PR.equipArmor(id); EW.game.player.setPalette(); EW.audio.sfx('anvil'); UI.toast(t('as.crafted', { name: t('arm.' + id) }), 'good'); this.build(); } } });
+        UI.open('confirm', { title: t('as.craftQ', { name: t('arm.' + id) }), body: t('as.craftBody'), yes: () => { if (PR.craftArmor(id)) { PR.equipArmor(id); UI.forging(EW.game.player.setPalette(), 'armor'); EW.audio.sfx('anvil'); UI.toast(t('as.crafted', { name: t('arm.' + id) }), 'good'); this.build(); } } });
         return;
       }
       if (EW.save.game.armor.equip[a.slot] === id) return;
-      PR.equipArmor(id); EW.game.player.setPalette(); EW.audio.sfx('guard', { vol: 0.5 }); this.build();
+      PR.equipArmor(id); const job = EW.game.player.setPalette(); if (job) UI.forging(job, 'armor'); else EW.audio.sfx('guard', { vol: 0.5 }); this.build();
     }
     alt() {
       const el = this.nav.current(); if (!el) return; const id = el.__id, PR = EW.progress;

@@ -18,11 +18,39 @@
   const choose = (table) => { let t = 0; for (const e of table) t += e[1]; let k = rnd() * t; for (const e of table) { k -= e[1]; if (k <= 0) return e; } return table[0]; };
   const item = (list, x, z, e, shade) => { const h = rr(e[2], e[3]); list.push({ x, y: W.heightAt(x, z) - 0.04, z, cell: e[0], w: h, h, sway: e[4] || 0, flip: rnd() < 0.5, shade: shade || rr(0.82, 1.08) }); };
   const addScatter = (list) => { const m = E.scatter(A.scatterAtlas(), SCAT.cols, SCAT.rows, list); W.group.add(m); W.updaters.push((t) => m.userData.update(t)); return m; };
+  // purely visual rocks (rubble, cliff spires) are collected per area and merged into ONE mesh each —
+  // hundreds of draw calls become a handful. Solid rocks stay separate: they fade when they hide the hunter.
+  let batch = null;
   const rock = (x, z, sx, sy, sz, { solid = true, y, tone } = {}) => {
     const m = E.rock(Math.floor(rnd() * 1000), sx, sy, sz, A.cliffTex(), { tone });
-    m.position.set(x, (y == null ? W.heightAt(x, z) : y) - sy * 0.06, z); m.rotation.y = rnd() * 6.28; W.group.add(m);
+    m.position.set(x, (y == null ? W.heightAt(x, z) : y) - sy * 0.06, z); m.rotation.y = rnd() * 6.28;
+    if (!solid && batch) { batch.push(m); return m; }
+    W.group.add(m);
     if (solid) { const r = Math.max(sx, sz) * 0.78; W.colliders.push({ x, z, r }); W.occluders.push({ x, z, r: r + 0.4, h: sy * 0.9, mats: [m.material] }); }
     return m;
+  };
+  const flushRocks = () => {
+    if (!batch || !batch.length) { batch = null; return; }
+    const list = batch; batch = null;
+    let n = 0; for (const m of list) n += m.geometry.attributes.position.count;
+    const P = new Float32Array(n * 3), N = new Float32Array(n * 3), U = new Float32Array(n * 2), C = new Float32Array(n * 3);
+    const v = new THREE.Vector3(), nm = new THREE.Matrix3(); let o = 0;
+    for (const m of list) {
+      m.updateMatrix(); nm.getNormalMatrix(m.matrix);
+      const g = m.geometry, ps = g.attributes.position, ns = g.attributes.normal, us = g.attributes.uv, cs = g.attributes.color;
+      for (let i = 0; i < ps.count; i++, o++) {
+        v.fromBufferAttribute(ps, i).applyMatrix4(m.matrix); P[o * 3] = v.x; P[o * 3 + 1] = v.y; P[o * 3 + 2] = v.z;
+        v.fromBufferAttribute(ns, i).applyMatrix3(nm).normalize(); N[o * 3] = v.x; N[o * 3 + 1] = v.y; N[o * 3 + 2] = v.z;
+        U[o * 2] = us.getX(i); U[o * 2 + 1] = us.getY(i);
+        C[o * 3] = cs.getX(i); C[o * 3 + 1] = cs.getY(i); C[o * 3 + 2] = cs.getZ(i);
+      }
+      g.dispose(); if (m !== list[0]) m.material.dispose();
+    }
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.BufferAttribute(P, 3)); g.setAttribute('normal', new THREE.BufferAttribute(N, 3));
+    g.setAttribute('uv', new THREE.BufferAttribute(U, 2)); g.setAttribute('color', new THREE.BufferAttribute(C, 3));
+    g.computeBoundingSphere();
+    W.group.add(new THREE.Mesh(g, list[0].material));
   };
 
   // ================================================================== Emberwatch Lodge
@@ -93,6 +121,7 @@
     const propsClear = (x, z, m) => W.pillars.every((p) => Math.hypot(x - p.x, z - p.z) > m) && W.crystals.every((c) => Math.hypot(x - c.x, z - c.z) > m * 0.6) && W.colliders.every((c) => Math.hypot(x - c.x, z - c.z) > c.r + m * 0.5);
 
     for (const zn of W.zones) {
+      batch = [];
       // outcrops crowding in from the rim (solid) — the basin stops reading as a clean bowl
       for (let i = 0, placed = 0; i < 400 && placed < 26; i++) {
         const a = rnd() * 6.283, d = rr(0.5, 1.0) * zn.r, x = zn.x + Math.cos(a) * d, z = zn.z + Math.sin(a) * d, o = W.open(x, z);
@@ -109,6 +138,7 @@
         if (o > 0.3 || passD(x, z) < 20) continue;
         const s = rr(5, 11); rock(x, z, s, s * rr(2.2, 4.6), s * rr(0.8, 1.2), { solid: false, y: W.heightAt(x, z) - s, tone: rr(0.7, 0.92) }); placed++;
       }
+      flushRocks();
     }
     // a few big lonely stones out in the open, well away from the dens
     for (const zn of W.zones) for (let i = 0, placed = 0; i < 200 && placed < 7; i++) {

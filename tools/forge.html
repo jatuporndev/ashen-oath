@@ -1,0 +1,54 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Sprite Forge</title>
+<style>
+  body { margin: 0; background: #2b2a33; color: #ddd; font: 13px system-ui, sans-serif; }
+  .row { display: flex; gap: 18px; padding: 12px 16px; align-items: flex-end; flex-wrap: wrap; }
+  canvas { image-rendering: pixelated; }
+  .cell { text-align: center; }
+  .cell div { margin-top: 4px; opacity: .7; }
+  #sheet { display: block; margin: 8px 16px; background: #3a3944; }
+  h3 { margin: 10px 16px 0; font-weight: 500; }
+</style>
+</head>
+<body>
+<h3 id="info">baking…</h3>
+<div class="row" id="anim"></div>
+<canvas id="sheet"></canvas>
+<script src="../vendor/three.min.js"></script>
+<script src="../js/art/forge.js"></script>
+<script src="../js/game/weapons.js"></script>
+<script>
+  const q = new URLSearchParams(location.search);
+  const weapon = q.get('weapon') || 'greatsword', zoom = +(q.get('zoom') || 4);
+  const pal = { skin: '#f0c6a0', hair: '#5a3424', cloth: '#6b4a32', leather: '#8a5c38', metal: '#a8b0b8', cape: '#2f5a5e', accent: '#c8a050', boot: '#4a3020', pants: '#4a4048' };
+  const t0 = performance.now();
+  const S = EW.Forge.bake({ pal, weapon, tier: +(q.get('tier') || 0) });
+  window.S = S;
+  const ms = Math.round(performance.now() - t0);
+  document.getElementById('info').textContent = `${weapon}: ${Object.keys(S.anims).join(', ')} × 8 facings — ${S.canvas.width}×${S.canvas.height} sheet, ${S.fw}×${S.fh} frames, baked in ${ms} ms`;
+  const sh = document.getElementById('sheet'); sh.width = S.canvas.width; sh.height = S.canvas.height;
+  const sx = sh.getContext('2d'); sx.imageSmoothingEnabled = false; sx.drawImage(S.canvas, 0, 0, sh.width, sh.height);
+  // live previews: one per facing for the chosen animation, cycling animations
+  const anim = q.get('anim') || 'walk';
+  const host = document.getElementById('anim');
+  const views = [];
+  const names = ['front', 'front-right', 'right', 'back-right', 'back', 'back-left', 'left', 'front-left'];
+  for (let d = 0; d < 8; d++) {
+    const c = document.createElement('canvas'); c.width = S.fw * zoom; c.height = S.fh * zoom;
+    const w = document.createElement('div'); w.className = 'cell'; w.append(c); const l = document.createElement('div'); l.textContent = names[d]; w.append(l); host.append(w);
+    views.push(c.getContext('2d'));
+  }
+  window.showFrame = (name, f) => {
+    const A = S.anims[name];
+    views.forEach((x, d) => { x.imageSmoothingEnabled = false; x.clearRect(0, 0, S.fw * zoom, S.fh * zoom); const i = EW.Forge.cell(S, name, f % A.frames, d); x.drawImage(S.canvas, (i % S.cols) * S.fw, Math.floor(i / S.cols) * S.fh, S.fw, S.fh, 0, 0, S.fw * zoom, S.fh * zoom); });
+  };
+  let f = 0; window.playing = q.get('still') === null;
+  setInterval(() => { if (window.playing) showFrame(anim, f++); }, 110);
+  showFrame(anim, 0);
+  window.forgeReady = true;
+</script>
+</body>
+</html>

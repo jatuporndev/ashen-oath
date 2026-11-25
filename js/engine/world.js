@@ -6,7 +6,7 @@
   'use strict';
   const EW = (window.EW = window.EW || {});
   const E = EW.engine, P = window.Paint, A = window.Art;
-  const W = (EW.world = { name: null, group: null, colliders: [], walls: [], interact: [], occluders: [], updaters: [], pillars: [], crystals: [], herbs: [] });
+  const W = (EW.world = { name: null, group: null, colliders: [], walls: [], interact: [], markers: [], occluders: [], updaters: [], pillars: [], crystals: [], herbs: [] });
   const smooth = (a, b, x) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
   const hash = (x, y) => { const s = Math.sin(x * 127.1 + y * 311.7) * 43758.5453; return s - Math.floor(s); };
   const vnoise = (x, y) => { const xi = Math.floor(x), yi = Math.floor(y), xf = x - xi, yf = y - yi, u = xf * xf * (3 - 2 * xf), v = yf * yf * (3 - 2 * yf); const a = hash(xi, yi), b = hash(xi + 1, yi), c = hash(xi, yi + 1), d = hash(xi + 1, yi + 1); return a + (b - a) * u + (c - a) * v + (a - b - c + d) * u * v; };
@@ -23,12 +23,29 @@
     return g;
   }
   // shaded box built from painted textures (manual directional shading, no lights)
+  // Per-face shading lives in vertex colours and per-face tiling in the UVs, so a box is 1 draw call
+  // (2 when the top has its own texture) instead of 6, and every box painted from the same canvas
+  // shares one texture (the hub used to upload ~600 of them).
+  const repTex = new Map();
+  const tiled = (canvas) => { let t = repTex.get(canvas); if (!t) { t = E.tex(canvas, [1, 1]); repTex.set(canvas, t); } return t; };
   function box(w, h, d, tex, { top, repeat = [1, 1], topRepeat, fade = false, shadeK = [0.92, 0.7, 0.82, 0.6, 1.0, 0.5] } = {}) {
-    const mk = (t, s, rep) => { const tt = E.tex(t, rep); const m = new THREE.MeshBasicMaterial({ map: tt, transparent: fade, side: THREE.FrontSide }); m.color.setScalar(s).multiply(E.tint); m.userData.k = s; return m; };
-    // order: +x, -x, +y, -y, +z, -z
-    const mats = [mk(tex, shadeK[0], [repeat[0] * d / w, repeat[1]]), mk(tex, shadeK[1], [repeat[0] * d / w, repeat[1]]), mk(top || tex, shadeK[4], topRepeat || [repeat[0], Math.max(1, repeat[0] * d / w)]), mk(tex, shadeK[5], repeat), mk(tex, shadeK[2], repeat), mk(tex, shadeK[3], repeat)];
-    const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d).translate(0, h / 2, 0), mats);
-    return m;
+    const geo = new THREE.BoxGeometry(w, h, d).translate(0, h / 2, 0);
+    // face order: +x, -x, +y, -y, +z, -z (4 vertices / 6 indices each)
+    const reps = [[repeat[0] * d / w, repeat[1]], [repeat[0] * d / w, repeat[1]], topRepeat || [repeat[0], Math.max(1, repeat[0] * d / w)], repeat, repeat, repeat];
+    const shade = [shadeK[0], shadeK[1], shadeK[4], shadeK[5], shadeK[2], shadeK[3]];
+    const uv = geo.attributes.uv, col = new Float32Array(uv.count * 3);
+    for (let f = 0; f < 6; f++) for (let v = f * 4; v < f * 4 + 4; v++) { uv.setXY(v, uv.getX(v) * reps[f][0], uv.getY(v) * reps[f][1]); col[v * 3] = col[v * 3 + 1] = col[v * 3 + 2] = shade[f]; }
+    geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
+    const mk = (canvas) => { const m = new THREE.MeshBasicMaterial({ map: tiled(canvas), vertexColors: true, transparent: fade, side: THREE.FrontSide }); m.color.copy(E.tint); return m; };
+    geo.clearGroups();
+    if (top && top !== tex) {
+      // put the top face last so the sides are one contiguous group
+      const idx = geo.index.array, re = [];
+      for (const f of [0, 1, 3, 4, 5, 2]) for (let i = f * 6; i < f * 6 + 6; i++) re.push(idx[i]);
+      geo.setIndex(re); geo.addGroup(0, 30, 0); geo.addGroup(30, 6, 1);
+      return new THREE.Mesh(geo, [mk(tex), mk(top)]);
+    }
+    return new THREE.Mesh(geo, mk(tex));
   }
   function wallSeg(x0, z0, x1, z1, h, t, tex, o = {}) {
     const len = Math.hypot(x1 - x0, z1 - z0), m = box(len, h, t, tex, Object.assign({ repeat: [len / 6, h / 6], fade: true }, o));
@@ -66,7 +83,7 @@
       W.group.traverse((o) => { if (o.geometry && o.geometry !== E.unitPlane && o.geometry !== E.centerPlane) o.geometry.dispose(); });
     }
     E.billboards.clear();
-    Object.assign(W, { camInside: null, group: null, colliders: [], walls: [], interact: [], occluders: [], updaters: [], pillars: [], crystals: [], herbs: [], ledge: null, gate: null, name: null, bossHome: null });
+    Object.assign(W, { camInside: null, group: null, colliders: [], walls: [], interact: [], markers: [], occluders: [], updaters: [], pillars: [], crystals: [], herbs: [], ledge: null, gate: null, name: null, bossHome: null });
     E.scene.fog = null;
   };
   W.load = (name) => {
@@ -272,6 +289,15 @@
     [[-6, -16], [6, -16]].forEach(([x, z]) => { prop(A.brazier(), 2.6, x, z, { r: 0.8 }); glowAt(x, 2.3, z, 0xff8a2a, 4.5); });
     [[-27, -26], [-25, -27.5], [26, -26], [27, 25], [-27, 26]].forEach(([x, z], i) => prop(i % 2 ? A.crate() : A.barrel(), 1.4, x, z, { r: 0.8 }));
     [[-40, 10], [44, -8], [-46, -26], [40, 36], [-36, 44], [12, 46], [50, 20]].forEach(([x, z], i) => prop(A.ashPine(i % 2), 11 + (i % 3) * 2, x, z, { fade: true, r: 0.6 }));
+    // role signs floating over every station (HUD draws them): what each person / thing is for
+    W.markers = [
+      { id: 'questboard', icon: 'board', name: 'mk.board', sub: 'mk.board.s', x: 0, y: 7.6, z: -12, hot: () => !EW.game.quest },
+      { id: 'master', icon: 'master', name: 'mk.master', sub: 'mk.master.s', x: 5.2, y: 3.4, z: -9.6 },
+      { id: 'weapons', icon: 'smith', name: 'mk.smith', sub: 'mk.smith.s', x: -17.6, y: 3.3, z: 2.6 },
+      { id: 'armor', icon: 'armorer', name: 'mk.armorer', sub: 'mk.armorer.s', x: 17.8, y: 3.3, z: 1.6 },
+      { id: 'storage', icon: 'chest', name: 'mk.chest', sub: 'mk.chest.s', x: -6.5, y: 2.3, z: 19.5 },
+      { id: 'gate', icon: 'gate', name: 'mk.gate', sub: 'mk.gate.s', x: 0, y: 10.5, z: -27, hot: () => !!EW.game.quest },
+    ];
     W.particles = E.ambientParticles(90, 0xffb060, 0.22, { rise: 0.35, spread: 36, height: [0.5, 10] });
     W.spawn = { x: 0, z: 14, yaw: 0 };
     W.departZ = -46;

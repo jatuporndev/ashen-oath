@@ -18,6 +18,7 @@
 
   // ------------------------------------------------------------------ attract mode (menus over the living guild)
   function attract() {
+    document.body.classList.remove('cine-on');
     G.state = 'attract';
     if (EW.hunt) { EW.hunt.dispose(); EW.hunt = null; }
     if (G.player) G.player.root.visible = false;
@@ -31,11 +32,12 @@
   // ------------------------------------------------------------------ guild hub
   function ensurePlayer() {
     if (!G.player) G.player = new EW.Player();
-    G.player.setWeapon(EW.save.game.weapon); G.player.setPalette(); G.player.root.visible = true;
+    G.player.setWeapon(EW.save.game.weapon, true); G.player.root.visible = true; // sync: we're behind a fade here
     G.player.resetVitals();
     return G.player;
   }
   function enterHub(from) {
+    document.body.classList.remove('cine-on');
     if (EW.hunt) { EW.hunt.dispose(); EW.hunt = null; }
     W.load('hub');
     const p = ensurePlayer(); W.player = p;
@@ -92,6 +94,8 @@
   const playingFree = () => (G.state === 'hub' || G.state === 'field') && !EW.ui.isOpen();
   EW.input.canLock = playingFree;
   EW.input.onLockLost = () => { if (playingFree()) EW.ui.open('pause'); };
+  // Ctrl is the roll key and Ctrl+W closes a tab (a page cannot block it): ask before leaving mid-game
+  addEventListener('beforeunload', (e) => { if (G.state === 'hub' || G.state === 'field') { e.preventDefault(); e.returnValue = ''; } });
   function control() {
     if (EW.ui.isOpen()) return false;
     if (G.state === 'hub') return G.player.state !== 'cine';
@@ -160,7 +164,7 @@
     EW.ui.init(); EW.hud.init();
     // climbing a downed beast + other context interactions are registered per hunt
     const _Hunt = EW.Hunt;
-    EW.Hunt = class extends _Hunt { constructor(q, p) { super(q, p); const b = this.boss; W.interact.push({ id: 'climb', get x() { return b.x; }, get z() { return b.z; }, r: 13, y: 6, label: 'prompt.climb', enabled: () => b.state === 'topple' && !b.mount && b.st > 0.6, act: () => b.climb(p) }); } };
+    EW.Hunt = class extends _Hunt { constructor(q, p) { super(q, p); const b = this.boss; W.interact.push({ id: 'climb', get x() { return b.x; }, get z() { return b.z; }, r: 13, y: 6, label: 'prompt.climb', enabled: () => b.state === 'topple' && b.canMount() && b.st > 0.6, act: () => b.climb(p) }); } };
     attract();
     requestAnimationFrame(frame);
     setTimeout(() => {

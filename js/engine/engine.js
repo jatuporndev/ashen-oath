@@ -16,7 +16,7 @@
   document.body.prepend(renderer.domElement);
   const scene = new THREE.Scene();
   const camera = new THREE.PerspectiveCamera(50, innerWidth / innerHeight, 0.1, 3000);
-  Object.assign(E, { renderer, scene, camera, tint: new THREE.Color(1, 1, 1), billboards: new Set(), time: 0 });
+  Object.assign(E, { renderer, scene, camera, tint: new THREE.Color(1, 1, 1), billboards: new Set(), time: 0, preRender: new Set() });
   addEventListener('resize', () => { camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); renderer.setSize(innerWidth, innerHeight); });
   const ANISO = renderer.capabilities.getMaxAnisotropy();
   E.ANISO = ANISO;
@@ -267,6 +267,7 @@
     gradeU.sat.value = G.sat; gradeU.contrast.value = G.contrast;
   };
   E.render = () => {
+    for (const f of E.preRender) f(); // off-screen passes that must use this frame's camera (pixel-art beasts)
     const on = E.grade.name !== 'none' && (!EW.save || EW.save.setting('filter') !== false);
     if (!on) { renderer.render(scene, camera); return; }
     renderer.getDrawingBufferSize(bufSize);
