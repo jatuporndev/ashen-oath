@@ -182,7 +182,7 @@
           // a click buffered on the take-off frame counts too (it used to be lost to the jump)
           if (this.state === 'fall' && (atk || this.buffer > 0)) { this.buffer = 0; this.sheathed = false; this.setState('plunge'); EW.audio.sfx('swingHeavy'); }
           // never hang in the air: no real fall lasts this long — put the hunter back on the ground
-          if (this.t > 4) { this.y = EW.world.heightAt(this.x, this.z); this.vy = 0; this.setState('land'); }
+          if (this.t > 2.5 && this.y - EW.world.heightAt(this.x, this.z) < 0.3) { this.y = EW.world.heightAt(this.x, this.z); this.vy = 0; this.setState('land'); }
           if (mv.mag > 0.1) { this.fx = lerp(this.fx, wx, dt * 4); this.fz = lerp(this.fz, wz, dt * 4); speed = 4 * mv.mag; }
           break;
         case 'land': if (this.t > 0.35) this.setState('move'); break;
@@ -222,7 +222,12 @@
           this.y = g; const fallV = this.vy; this.vy = 0;
           if (this.state === 'fall' || this.state === 'plunge') { this.setState('land'); EW.audio.sfx('step', { vol: 0.8 }); E.dust(this.x, g, this.z, 6, 1.2); if (fallV < -16) EW.cam.shake(0.15); }
         }
-      } else this.y = g;
+      } else {
+        // the ground came up to meet us (slope / ledge) without passing through the landing branch above:
+        // still a landing — otherwise the hunter stayed in the jump / plunge pose while walking
+        this.y = g;
+        if (airState) { this.vy = 0; this.setState('land'); EW.audio.sfx('step', { vol: 0.6 }); }
+      }
     }
 
     // ------------------------------------------------------------------ moves
