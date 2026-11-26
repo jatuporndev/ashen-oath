@@ -240,6 +240,33 @@
     back: { torso: gmTorsoBack(), tail: gmTailBack(false), tailSevered: gmTailBack(true) },
   });
 
+  // ------------------------------------------------------------ CRAGJAW — Gravemaw's body plan with a crystal ridge + tusks
+  const AMBER = '#ffb640', CRYSTAL = '#d8922c';
+  function cjRidgeSide() {
+    P.seed(9301);
+    return part(760, 300, [380, 270], (x) => {
+      for (let i = 0; i < 9; i++) {
+        const cx = 50 + i * 82, hgt = 120 + Math.sin((i / 8) * Math.PI) * 130 + P.r(-20, 20), lean = P.r(-24, 10);
+        P.polyShape(x, [[cx - 40, 276], [cx - 24, 276 - hgt * 0.5], [cx + lean, 276 - hgt], [cx + 26, 276 - hgt * 0.45], [cx + 40, 276]], { base: CRYSTAL, outline: '#2a1808', hi: 0.8 });
+        crack(x, [[cx - 6, 268], [cx + lean * 0.6, 276 - hgt * 0.7]], 2.5, AMBER);
+        P.polyShape(x, [[cx + 18, 276], [cx + 34, 276 - hgt * 0.45], [cx + 52, 276]], { base: '#a86a20', outline: '#2a1808' });
+      }
+      P.shape(x, [[10, 300], [40, 250], [740, 250], [750, 300]], { base: '#3a3a34', dab: 10 });
+    });
+  }
+  function cjTusksSide() {
+    P.seed(9302);
+    return part(380, 460, [80, 250], (x) => {
+      [[150, 404, 1, '#e2d4aa'], [128, 398, 0.85, '#bfb48e']].forEach(([bx, by, s, col]) => {
+        x.save(); x.translate(bx, by); x.scale(s, s);
+        P.shape(x, [[-14, 12], [-18, -8], [20, -30], [48, -76], [54, -128], [68, -126], [66, -72], [40, -16], [14, 16]], { base: col, outline: '#3a2e20', dab: 8 });
+        x.restore();
+      });
+      [[70, 236], [40, 250], [100, 250]].forEach(([cx, cy], i) => P.polyShape(x, [[cx - 14, cy], [cx - 4 - i * 4, cy - 56 + i * 10], [cx + 14, cy]], { base: CRYSTAL, outline: '#2a1808', hi: 0.8 }));
+    });
+  }
+  A.cragjaw = () => { const g = A.gravemaw(); g.side.plates = cjRidgeSide(); g.side.horns = cjTusksSide(); return g; };
+
   // ink-on-parchment portrait for the quest board, composed from the side-view parts
   A.bossPortrait = (art, w = 560, h = 340, ink = true) => {
     const c = P.canvas(w, h), x = c.getContext('2d');

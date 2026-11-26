@@ -13,6 +13,10 @@
       EW.world.load(quest.field);
       EW.world.player = player;
       this.boss = new EW.BOSSES[quest.boss](EW.world.bossHome);
+      // co-op: guests see a replica of the host's beast; the host's beast is scaled for the party
+      const N = EW.net;
+      if (N && N.isGuest) this.boss.makeReplica();
+      else if (N && N.isHost && N.count() > 1) { this.boss.scaleParty(N.count()); this.boss.captureForParty(); }
       const sp = EW.world.spawn;
       player.place(sp.x, sp.z, sp.yaw); player.resetVitals(); player.potions = 5;
       EW.cam.ground = EW.world.heightAt; EW.cam.inside = null;
@@ -26,11 +30,11 @@
     update(dt) {
       const p = this.player;
       if (this.phase === 'arrive') {
-        if (p.z < 90) { p.autoWalk = null; p.setState('move'); this.phase = 'hunt'; EW.hud && EW.hud.tip('tip.hunt'); }
+        if (p.z < 90) { p.autoWalk = null; p.setState('move'); this.phase = 'hunt'; EW.hud && EW.hud.tip(this.quest.boss === 'gravemaw' ? 'tip.hunt' : 'tip.hunt.' + this.quest.boss); }
       }
       if (this.phase === 'hunt') {
         this.time += dt;
-        if (this.time > this.quest.limit) this.fail('timeout');
+        if (this.time > this.quest.limit && !(EW.net && EW.net.isGuest)) this.fail('timeout');
       }
       if (this.phase === 'victory') {
         this.victoryT -= dt;
@@ -122,23 +126,35 @@
     onMount() { this.stats.mounts++; EW.hud && EW.hud.tip('tip.mount'); }
     gatherHerb() { const p = this.player; p.heal += 35; p.setState('gather'); this.stats.herbs++; EW.audio.sfx('herb'); EW.hud && EW.hud.notice('notice.herb', 'good'); }
     useCamp() { this.campUsed = true; this.player.potions += 3; this.player.hp = this.player.maxHp; EW.audio.sfx('potion'); EW.hud && EW.hud.notice('notice.camp', 'good'); }
+    // faints are shared by the party (the host counts them); the hunter who fainted wakes at camp
     onFaint() {
+      const N = EW.net;
+      if (N && N.isGuest) { N.send({ t: 'faint' }, 'host'); this.respawnSoon(); return; }
+      if (this.countFaint()) this.respawnSoon();
+    }
+    countFaint() {
       this.faints++;
       EW.hud && EW.hud.notice(this.faints >= this.quest.faints ? 'notice.faintFinal' : 'notice.faint', 'warn', { n: this.quest.faints - this.faints });
-      if (this.faints >= this.quest.faints) { setTimeout(() => this.fail('faints'), 2400); return; }
-      setTimeout(() => EW.ui.fadeThrough(() => {
-        const p = this.player; p.place(0, 80, 0); p.resetVitals(); p.y = EW.world.heightAt(0, 80);
-        EW.cam.reset(p.x, p.y + 1.6, p.z, 0, 11, 0.3);
-        if (this.boss.mount) this.boss.mount = null;
-        if (this.boss.state === 'mounted') this.boss.enter('stalk');
-      }), 2200);
+      if (this.faints >= this.quest.faints) { setTimeout(() => this.fail('faints'), 2400); return false; }
+      return true;
+    }
+    respawnSoon() {
+      setTimeout(() => {
+        if (this.phase === 'failed' || EW.hunt !== this) return;
+        EW.ui.fadeThrough(() => {
+          const p = this.player; p.place(0, 80, 0); p.resetVitals(); p.y = EW.world.heightAt(0, 80);
+          EW.cam.reset(p.x, p.y + 1.6, p.z, 0, 11, 0.3);
+          const b = this.boss;
+          if (!b.replica && b.mount && b.mount.rider === p) { b.mount = null; if (b.state === 'mounted') b.enter('stalk'); }
+        });
+      }, 2200);
     }
     onBossDown() {
       if (this.phase !== 'hunt' && this.phase !== 'intro') return;
       this.phase = 'victory'; this.victoryT = 50;
       EW.cam.lock = false;
       EW.audio.music(null); setTimeout(() => EW.audio.fanfare(), 900);
-      setTimeout(() => { EW.hud && EW.hud.banner('banner.complete', 'banner.complete.sub'); }, 1200);
+      setTimeout(() => { EW.hud && EW.hud.banner('banner.complete', this.quest.boss === 'gravemaw' ? 'banner.complete.sub' : 'banner.complete.sub.' + this.quest.boss); }, 1200);
       setTimeout(() => { EW.hud && EW.hud.tip('tip.carve'); EW.audio.music('hub'); }, 5200);
       EW.save.game.cleared[this.quest.boss] = (EW.save.game.cleared[this.quest.boss] || 0) + 1;
     }
@@ -171,6 +187,7 @@
     fail(reason) {
       if (this.phase === 'failed') return;
       this.phase = 'failed';
+      if (EW.net && EW.net.isHost) EW.net.send({ t: 'fail', r: reason });
       EW.audio.music(null);
       EW.ui.open('failed', { reason });
     }

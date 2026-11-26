@@ -108,7 +108,9 @@
     if (!document.pointerLockElement) { input.lockLostAt = performance.now(); input.mouse = [false, false, false]; input.onLockLost?.(); }
   });
 
+  const typing = (e) => e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA');
   addEventListener('keydown', (e) => {
+    if (typing(e)) return; // the field handles its own Enter / Escape
     if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Tab'].includes(e.code)) e.preventDefault();
     input.setDevice('kb'); input.keys.add(e.code);
     // the Esc that released the cursor already opened the pause menu — don't let it close it again

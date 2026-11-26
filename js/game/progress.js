@@ -7,6 +7,8 @@
   D.materials = {
     gm_hide: { rarity: 1 }, gm_fang: { rarity: 1 }, gm_bone: { rarity: 1 }, gm_claw: { rarity: 2 },
     gm_plate: { rarity: 2 }, gm_spike: { rarity: 2 }, gm_horn: { rarity: 3 }, gm_core: { rarity: 4 },
+    cj_hide: { rarity: 1 }, cj_shard: { rarity: 1 }, cj_tusk: { rarity: 2 }, cj_club: { rarity: 2 },
+    cj_claw: { rarity: 2 }, cj_geode: { rarity: 3 },
   };
   D.bosses = {
     gravemaw: {
@@ -16,9 +18,23 @@
       carve: [['gm_hide', 34], ['gm_bone', 24], ['gm_fang', 16], ['gm_plate', 12], ['gm_claw', 9], ['gm_horn', 3], ['gm_core', 2]],
       reward: [['gm_hide', 30], ['gm_bone', 25], ['gm_plate', 18], ['gm_claw', 12], ['gm_fang', 10], ['gm_core', 5]],
       tailCarve: [['gm_spike', 70], ['gm_hide', 30]],
+      atks: ['swipe', 'stomp', 'tail', 'charge', 'breath', 'leap', 'vent', 'roar'],
+      show: ['gm_hide', 'gm_plate', 'gm_horn', 'gm_core'],
+    },
+    // a quicker, lighter rock beast: no fire — it hurls crystal boulders and shakes the ground
+    cragjaw: {
+      size: 'large', heightMul: 6, hp: 2300, stars: 3, threat: ['rock', 'charge', 'quake'],
+      weak: [['head', 3], ['core', 2], ['tail', 2]],
+      breaks: { horns: 'cj_tusk', plates: 'cj_shard', tail: 'cj_club', forelegs: 'cj_claw', head: 'cj_tusk' },
+      carve: [['cj_hide', 38], ['cj_shard', 26], ['cj_claw', 14], ['cj_tusk', 12], ['cj_club', 6], ['cj_geode', 4]],
+      reward: [['cj_hide', 32], ['cj_shard', 28], ['cj_claw', 16], ['cj_tusk', 12], ['cj_geode', 6]],
+      tailCarve: [['cj_club', 70], ['cj_hide', 30]],
+      atks: ['swipe', 'stomp', 'tail', 'charge', 'hurl', 'leap', 'quake', 'roar'],
+      show: ['cj_hide', 'cj_shard', 'cj_tusk', 'cj_geode'],
     },
   };
   D.quests = [
+    { id: 'q_cragjaw', boss: 'cragjaw', field: 'ravine', crowns: 450, limit: 25 * 60, faints: 3 },
     { id: 'q_gravemaw', boss: 'gravemaw', field: 'ravine', crowns: 600, limit: 30 * 60, faints: 3 },
   ];
   // weapon upgrade ladder: level 2, 3, 4 (4 = Gravemaw-forged ember tier)
@@ -35,8 +51,13 @@
     gm_head: { slot: 'head', set: 'gravemaw', def: 14, cost: { crowns: 300, gm_hide: 3, gm_horn: 1 } },
     gm_chest: { slot: 'chest', set: 'gravemaw', def: 22, cost: { crowns: 450, gm_hide: 4, gm_plate: 2, gm_bone: 2 } },
     gm_legs: { slot: 'legs', set: 'gravemaw', def: 18, cost: { crowns: 350, gm_hide: 3, gm_claw: 1, gm_bone: 2 } },
+    cj_head: { slot: 'head', set: 'cragjaw', def: 11, cost: { crowns: 220, cj_hide: 2, cj_tusk: 1 } },
+    cj_chest: { slot: 'chest', set: 'cragjaw', def: 17, cost: { crowns: 320, cj_hide: 3, cj_shard: 3 } },
+    cj_legs: { slot: 'legs', set: 'cragjaw', def: 14, cost: { crowns: 260, cj_hide: 2, cj_claw: 1, cj_shard: 1 } },
   };
-  D.armorUp = (lvl) => ({ crowns: 120 + lvl * 80, gm_hide: 1 + lvl, gm_bone: lvl });
+  D.armorUp = (lvl, set) => (set === 'cragjaw' ? { crowns: 100 + lvl * 70, cj_hide: 1 + lvl, cj_shard: lvl } : { crowns: 120 + lvl * 80, gm_hide: 1 + lvl, gm_bone: lvl });
+  // set skills: [pieces, skill]
+  D.setSkills = { gravemaw: [[2, 'fireward'], [3, 'emberheart']], cragjaw: [[2, 'stoneskin'], [3, 'earthbound']] };
   D.armorMax = 3;
 
   const G = () => EW.save.game;
@@ -58,13 +79,14 @@
   PR.armorDef = (id) => D.armor[id].def + PR.armorLvl(id) * 3;
   PR.owns = (id) => G().armor.owned.includes(id);
   PR.craftArmor = (id) => { const a = D.armor[id]; if (PR.owns(id) || !a.cost || !PR.pay(a.cost)) return false; G().armor.owned.push(id); EW.save.commit(); return true; };
-  PR.upgradeArmor = (id) => { const l = PR.armorLvl(id); if (l >= D.armorMax || !PR.owns(id) || !PR.pay(D.armorUp(l))) return false; G().armor.lvl[id] = l + 1; EW.save.commit(); return true; };
+  PR.armorUpCost = (id) => D.armorUp(PR.armorLvl(id), D.armor[id].set);
+  PR.upgradeArmor = (id) => { const l = PR.armorLvl(id); if (l >= D.armorMax || !PR.owns(id) || !PR.pay(PR.armorUpCost(id))) return false; G().armor.lvl[id] = l + 1; EW.save.commit(); return true; };
   PR.equipArmor = (id) => { if (!PR.owns(id)) return false; G().armor.equip[D.armor[id].slot] = id; EW.save.commit(); EW.bus.emit('armor'); return true; };
   PR.defense = () => Object.values(G().armor.equip).reduce((s, id) => s + PR.armorDef(id), 0);
   PR.setPieces = (set) => Object.values(G().armor.equip).filter((id) => D.armor[id].set === set).length;
-  PR.skills = () => { const n = PR.setPieces('gravemaw'); const s = []; if (n >= 2) s.push('fireward'); if (n >= 3) s.push('emberheart'); return s; };
-  // sprite palette: gravemaw look once the chest piece is gravemaw
-  PR.palette = () => (D.armor[G().armor.equip.chest].set === 'gravemaw' ? 'gravemaw' : 'leather');
+  PR.skills = () => { const s = []; for (const [set, list] of Object.entries(D.setSkills)) { const n = PR.setPieces(set); for (const [k, id] of list) if (n >= k) s.push(id); } return s; };
+  // sprite palette: the chest piece's set decides the look
+  PR.palette = () => { const set = D.armor[G().armor.equip.chest].set; return window.Art && Art.HERO_PALETTES && Art.HERO_PALETTES[set] ? set : 'leather'; };
 
   PR.roll = (table) => { const tot = table.reduce((s, [, w]) => s + w, 0); let r = Math.random() * tot; for (const [id, w] of table) { r -= w; if (r <= 0) return id; } return table[0][0]; };
   PR.questById = (id) => D.quests.find((q) => q.id === id);

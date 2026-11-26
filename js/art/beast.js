@@ -151,6 +151,8 @@
   // ------------------------------------------------------------------ Gravemaw, the Ashen Behemoth
   // boss-local frame: +X forward, +Y up, feet on y = 0. ~43 units nose to tail, 14 tall.
   const GRAVEMAW = { hide: '#57483f', hideD: '#33291f', belly: '#8a7462', plate: '#2a2324', bone: '#ddd0b2', horn: '#cbbd9c', claw: '#2a2224', ember: '#ff8a2a', eye: '#ffc060', mouth: '#ff6a1a' };
+  // Cragjaw, the Ridge Breaker: mossy slate hide, stone collar, amber crystal growths (one hot accent: amber)
+  const CRAGJAW = { hide: '#4a4a3a', hideD: '#2c2b22', belly: '#7a7258', plate: '#3a3a34', bone: '#cfc3a0', horn: '#e2d4aa', claw: '#24221c', ember: '#ffb640', eye: '#ffe08a', mouth: '#ff9a2a', crystal: '#d8922c', moss: '#4e5a30' };
 
   // merge the plain child meshes of every group that share a material (meshes that are toggled or
   // referenced on their own are left alone)
@@ -174,9 +176,13 @@
       }
     }
   }
-  B.gravemaw = () => {
+  B.gravemaw = () => build(GRAVEMAW, 'gravemaw');
+  B.cragjaw = () => build(CRAGJAW, 'cragjaw');
+  function build(PAL, kind) {
+    const crag = kind === 'cragjaw';
     const U = makeUniforms(), mats = {};
-    const mat = (k, o) => mats[k + (o && o.glow ? '!' : '')] || (mats[k + (o && o.glow ? '!' : '')] = toonMat(U, GRAVEMAW[k], o));
+    const mat = (k, o) => mats[k + (o && o.glow ? '!' : '')] || (mats[k + (o && o.glow ? '!' : '')] = toonMat(U, PAL[k], o));
+    const rock = (r, k, parent, x, y, z, o) => mesh(new THREE.DodecahedronGeometry(r, 0), k, parent, x, y, z, o);
     const J = {};
     const joint = (name, parent, x = 0, y = 0, z = 0) => { const g = new THREE.Group(); g.position.set(x, y, z); parent.add(g); if (name) J[name] = g; return g; };
     const mesh = (geo, k, parent, x = 0, y = 0, z = 0, o) => { const m = new THREE.Mesh(geo, mat(k, o)); m.position.set(x, y, z); parent.add(m); return m; };
@@ -200,6 +206,12 @@
     ball(1, 5.2, 5.4, 5.0, 'hide', torso, 5.6, 0.5, 0);
     ball(1, 4.8, 4.9, 4.9, 'hide', torso, -6, 0.2, 0);
     ball(1, 8.4, 2.8, 4.1, 'belly', torso, 0.4, -2.5, 0);
+    if (crag) {
+      // heavy hunched shoulders under a stone collar; mossy rocks on the haunches
+      ball(1, 4.6, 4.2, 5.6, 'hide', torso, 6.4, 1.6, 0);
+      for (const s of [1, -1]) { rock(1.9, 'plate', torso, 6.8, 3.6, s * 3.6).rotation.set(0.4, s * 0.6, 0.2); rock(1.5, 'plate', torso, 4.0, 4.4, s * 3.0).rotation.set(0.9, 0.2, s * 0.5); }
+      for (const s of [1, -1]) rock(1.3, 'moss', torso, -6.4, 3.4, s * 2.8).rotation.set(s * 0.7, 0.3, 0.4);
+    }
     // ember fissures down the flanks
     for (const s of [1, -1]) for (const [x, y, rz, len] of [[-3, 1.2, 0.5, 4.2], [2.5, 0.6, -0.4, 3.6], [6.4, 0.9, 0.3, 2.8], [-7, 0.4, -0.3, 2.6]]) {
       const zz = s * Math.sqrt(Math.max(0.1, 1 - (x / 9.5) ** 2 - (y / 5.2) ** 2)) * 5.0;
@@ -208,16 +220,33 @@
     // back plates + bone ridge (breakable), core beneath
     const plates = joint('plates', torso, 0, 4.0, 0);
     const platesOk = joint('platesOk', plates);
-    for (let i = -2; i <= 2; i++) {
-      const p = box(3.4, 3.0, 5.0, 'plate', platesOk, i * 3.3, 0.6 - Math.abs(i) * 0.45, 0, { metal: true });
-      p.rotation.set(0, 0, -i * 0.12);
-      spike(0.75, 2.6 - Math.abs(i) * 0.3, 'bone', platesOk, [i * 3.3, 2.0 - Math.abs(i) * 0.45, 0], [-0.25, 1, 0]);
-      box(0.25, 2.4, 5.1, 'ember', platesOk, i * 3.3 + 1.55, 0.4 - Math.abs(i) * 0.45, 0, { glow: true }).rotation.z = -i * 0.12;
-    }
     const platesBroken = joint('platesBroken', plates); platesBroken.visible = false;
-    for (let i = -2; i <= 2; i++) {
-      const p = box(3.0, 1.2 + ((i * 7 + 3) % 3) * 0.3, 4.6, 'plate', platesBroken, i * 3.3, -0.4 - Math.abs(i) * 0.4, 0, { metal: true });
-      p.rotation.set(((i * 5) % 3) * 0.12, 0, -i * 0.2);
+    if (crag) {
+      // a ridge of amber crystal shards growing out of a stone bed
+      for (let i = -2; i <= 2; i++) {
+        const y0 = 0.2 - Math.abs(i) * 0.45;
+        rock(2.1, 'plate', platesOk, i * 3.3, y0 - 0.6, 0, { metal: true }).rotation.set(i * 0.7, i, 0.3);
+        const tall = 5.2 - Math.abs(i) * 0.9;
+        spike(1.05, tall, 'crystal', platesOk, [i * 3.3, y0, 0], [-0.2 - i * 0.05, 1, 0.12], { metal: true });
+        spike(0.7, tall * 0.6, 'crystal', platesOk, [i * 3.3 + 0.8, y0, 1.3], [0.1, 1, 0.7], { metal: true });
+        spike(0.7, tall * 0.55, 'crystal', platesOk, [i * 3.3 - 0.6, y0, -1.3], [-0.2, 1, -0.7], { metal: true });
+        spike(0.3, tall * 0.5, 'ember', platesOk, [i * 3.3 + 0.5, y0 + 0.4, 0.3], [-0.1, 1, 0.2], { glow: true });
+        // broken: snapped stumps with glowing faces
+        rock(1.8, 'plate', platesBroken, i * 3.3, y0 - 0.9, 0, { metal: true }).rotation.set(i, 0.4, 0.2);
+        const st = mesh(new THREE.CylinderGeometry(0.7, 1.0, 1.4, 5), 'crystal', platesBroken, i * 3.3, y0 + 0.3, 0, { metal: true }); st.rotation.z = 0.2 * i;
+        box(1.0, 0.25, 1.0, 'ember', platesBroken, i * 3.3, y0 + 1.05, 0, { glow: true });
+      }
+    } else {
+      for (let i = -2; i <= 2; i++) {
+        const p = box(3.4, 3.0, 5.0, 'plate', platesOk, i * 3.3, 0.6 - Math.abs(i) * 0.45, 0, { metal: true });
+        p.rotation.set(0, 0, -i * 0.12);
+        spike(0.75, 2.6 - Math.abs(i) * 0.3, 'bone', platesOk, [i * 3.3, 2.0 - Math.abs(i) * 0.45, 0], [-0.25, 1, 0]);
+        box(0.25, 2.4, 5.1, 'ember', platesOk, i * 3.3 + 1.55, 0.4 - Math.abs(i) * 0.45, 0, { glow: true }).rotation.z = -i * 0.12;
+      }
+      for (let i = -2; i <= 2; i++) {
+        const p = box(3.0, 1.2 + ((i * 7 + 3) % 3) * 0.3, 4.6, 'plate', platesBroken, i * 3.3, -0.4 - Math.abs(i) * 0.4, 0, { metal: true });
+        p.rotation.set(((i * 5) % 3) * 0.12, 0, -i * 0.2);
+      }
     }
     const core = ball(2.2, 1, 1, 1, 'ember', torso, 0, 4.4, 0, { glow: true }); J.core = core;
     // neck + head
@@ -240,7 +269,21 @@
     // horns: three bends sweeping back and out
     const horns = joint('horns', head, 1.4, 2.6, 0);
     const hornsOk = joint('hornsOk', horns), hornsBroken = joint('hornsBroken', horns); hornsBroken.visible = false;
-    for (const s of [1, -1]) {
+    if (crag) for (const s of [1, -1]) {
+      // tusks: out of the snout, forward then up (horns joint sits at head (1.4, 2.6))
+      let p = [4.4, -3.1, s * 1.75];
+      [[[1, 0.15, s * 0.4], 1.8, 0.62], [[0.8, 0.75, s * 0.15], 1.7, 0.46], [[0.1, 1, -s * 0.05], 1.1, 0.34]].forEach(([dir, len, r], i) => {
+        const d = V(...dir).normalize();
+        const m = mesh(new THREE.CylinderGeometry(r * 0.75, r, len, 7), 'horn', hornsOk); m.quaternion.setFromUnitVectors(V(0, 1, 0), d); m.position.set(...p).addScaledVector(d, len / 2);
+        p = [p[0] + d.x * len, p[1] + d.y * len, p[2] + d.z * len];
+        if (i === 2) spike(r * 0.75, 1.0, 'horn', hornsOk, p, dir);
+      });
+      const st = mesh(new THREE.CylinderGeometry(0.6, 0.8, 1.2, 7), 'horn', hornsBroken, 4.9, -2.9, s * 1.9); st.rotation.set(0, 0, -1.2);
+      box(0.25, 0.8, 0.8, 'ember', hornsBroken, 5.5, -2.7, s * 1.95, { glow: true });
+    }
+    // a crown of small crystals on the brow (stays when the tusks break)
+    if (crag) for (const [x, z, dz] of [[0.2, 0, 0], [-0.6, 1.0, 0.5], [-0.6, -1.0, -0.5]]) spike(0.45, 1.7, 'crystal', horns, [x, -0.3, z], [-0.4, 1, dz], { metal: true });
+    if (!crag) for (const s of [1, -1]) {
       let p = [0, 0, s * 1.7];
       [[[-0.4, 1, s * 0.35], 3.2, 0.95], [[-1, 0.55, s * 0.25], 3.0, 0.7], [[-1, -0.1, s * 0.1], 2.4, 0.5]].forEach(([dir, len, r], i) => {
         const d = V(...dir).normalize();
@@ -280,10 +323,16 @@
     // tail: two segments + spiked club (second segment can be severed)
     const tail1 = joint('tail1', torso, -9.0, 0.8, 0);
     tailSeg(2.5, 1.7, 7.8, tail1);
-    for (let i = 0; i < 3; i++) spike(0.5, 1.6 - i * 0.3, 'bone', tail1, [-1.5 - i * 2.4, 2.0 - i * 0.25, 0], [-0.4, 1, 0]);
+    for (let i = 0; i < 3; i++) spike(0.5, 1.6 - i * 0.3, crag ? 'crystal' : 'bone', tail1, [-1.5 - i * 2.4, 2.0 - i * 0.25, 0], [-0.4, 1, 0], crag ? { metal: true } : undefined);
     const tail2 = joint('tail2', tail1, -7.6, 0, 0);
     const buildTail2 = (parent) => {
       tailSeg(1.7, 0.9, 7.0, parent);
+      if (crag) {
+        // a stone mace studded with amber crystals
+        rock(2.2, 'plate', parent, -7.6, 0, 0, { metal: true }).rotation.set(0.3, 0.5, 0.2);
+        for (const [p, d] of [[[-7.6, 1.6, 0], [0.1, 1, 0]], [[-7.4, 0.3, 1.7], [0, 0.5, 1]], [[-7.4, 0.3, -1.7], [0, 0.5, -1]], [[-9.4, 0.2, 0], [-1, 0.2, 0]], [[-6.2, 1.4, 0.8], [0.3, 1, 0.5]]]) spike(0.6, 1.8, 'crystal', parent, p, d, { metal: true });
+        return;
+      }
       box(2.8, 2.3, 2.6, 'plate', parent, -7.4, 0, 0, { metal: true });
       for (const [p, d] of [[[-7.4, 1.1, 0], [0, 1, 0]], [[-7.4, 0, 1.3], [0, 0.3, 1]], [[-7.4, 0, -1.3], [0, 0.3, -1]], [[-8.8, 0, 0], [-1, 0, 0]], [[-3, 1.4, 0], [-0.3, 1, 0]]]) spike(0.55, 1.6, 'bone', parent, p, d);
     };
@@ -343,6 +392,16 @@
     const coreWorld = () => core.localToWorld(corePt.clone());
     // one draw call per (joint, material) instead of one per primitive: ~100 calls → ~40
     mergeStatic(root, new Set(Object.values(J)));
-    return { root, U, J, pose, breakPart, severedTail, mouthWorld, coreWorld };
-  };
+    // a thrown crystal boulder (Cragjaw's hurl) — drawn by the same pixel layer
+    const boulder = () => {
+      const g = new THREE.Group();
+      rock(2.1, 'plate', g, 0, 0, 0, { metal: true });
+      spike(0.75, 2.2, 'crystal', g, [0.2, 1.1, 0.3], [0.2, 1, 0.3], { metal: true });
+      spike(0.6, 1.8, 'crystal', g, [-0.8, 0.3, -1.0], [-0.6, 0.4, -1], { metal: true });
+      spike(0.5, 1.5, 'crystal', g, [0.9, -0.6, 0.9], [0.7, -0.5, 0.8], { metal: true });
+      spike(0.28, 1.3, 'ember', g, [0.8, 0.2, -0.3], [1, 0.3, -0.2], { glow: true });
+      return g;
+    };
+    return { root, U, J, pose, breakPart, severedTail, mouthWorld, coreWorld, boulder };
+  }
 })();

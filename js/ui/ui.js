@@ -253,6 +253,7 @@
       const list = h('nav.main-menu',
         menuItem(t('menu.continue'), () => EW.game.continueGame(), { disabled: !has, sub: has ? t('menu.continue.sub', { hunts: S.stored.hunts, crowns: S.stored.crowns }) : t('menu.continue.none') }),
         menuItem(t('menu.new'), () => { if (has) UI.open('confirm', { title: t('confirm.new'), body: t('confirm.new.body'), yes: () => EW.game.newGame() }); else EW.game.newGame(); }),
+        menuItem(t('menu.coop'), () => UI.open('coop'), { sub: t('menu.coop.sub') }),
         menuItem(t('menu.settings'), () => UI.open('settings')),
         menuItem(t('menu.exit'), () => UI.open('confirm', { title: t('confirm.exit'), body: t('confirm.exit.body'), yes: () => EW.game.exit() }), { sound: 'uiBack' }));
       this.el.replaceChildren(
@@ -316,8 +317,9 @@
       const inHunt = !!EW.hunt;
       const list = h('nav.main-menu',
         menuItem(t('pause.resume'), () => UI.close()),
+        (!inHunt || EW.net.active) ? menuItem(t('pause.coop'), () => UI.open('room'), { sub: EW.net.active ? `${EW.net.code} · ${EW.net.count()}/4` : null }) : null,
         menuItem(t('menu.settings'), () => UI.open('settings')),
-        inHunt ? menuItem(t('pause.abandon'), () => UI.open('confirm', { title: t('confirm.abandon'), body: t('confirm.abandon.body'), yes: () => { UI.reset(); EW.game.returnToGuild(false); } }), { sound: 'uiBack' }) : null,
+        inHunt ? menuItem(t('pause.abandon'), () => UI.open('confirm', { title: t('confirm.abandon'), body: t('confirm.abandon.body'), yes: () => EW.game.abandon() }), { sound: 'uiBack' }) : null,
         menuItem(t('pause.title'), () => UI.open('confirm', { title: t('confirm.title'), body: inHunt ? t('confirm.title.hunt') : t('confirm.title.body'), yes: () => EW.game.quitToTitle() }), { sound: 'uiBack' }));
       const info = inHunt
         ? h('div.pause-info', h('div.pi-k', t('pause.quest')), h('div.pi-v', t('boss.' + EW.hunt.quest.boss + '.quest')), h('div.pi-k', t('pause.time')), h('div.pi-v', fmtTime(EW.hunt.time) + ' / ' + fmtTime(EW.hunt.quest.limit)), h('div.pi-k', t('pause.faints')), h('div.pi-v', `${EW.hunt.faints} / ${EW.hunt.quest.faints}`))
@@ -355,11 +357,12 @@
       this.sel = q; this.arm = false;
       const b = EW.data.bosses[q.boss], cur = EW.game.quest;
       const taken = cur && cur.id === q.id;
-      this.action.textContent = taken ? t('qb.cancel') : t('qb.accept');
+      this.action.textContent = EW.net.isGuest ? t('coop.hostPicks') : taken ? t('qb.cancel') : t('qb.accept');
       this.action.classList.toggle('cancel', !!taken); this.action.classList.remove('armed');
-      const portrait = icon('portrait:' + q.boss, () => A.bossPortrait(A.gravemaw(), 560, 300));
+      this.action.classList.toggle('is-disabled', EW.net.isGuest);
+      const portrait = icon('portrait:' + q.boss, () => A.bossPortrait((A[q.boss] || A.gravemaw)(), 560, 300));
       portrait.className = 'portrait';
-      const atks = ['swipe', 'stomp', 'tail', 'charge', 'breath', 'leap', 'vent', 'roar'];
+      const atks = b.atks;
       this.detail.replaceChildren(
         h('div.n-head', h('div.n-kicker', t('qb.target')), h('div.n-name', t('boss.' + q.boss)), h('div.n-epithet', t('boss.' + q.boss + '.title'))),
         h('div.n-art', portrait, h('div.n-size', h('span', t('size.' + b.size)), h('span', t('qb.height', { n: b.heightMul })))),
@@ -369,7 +372,7 @@
           h('div.n-col', h('div.n-k', t('qb.attacks')), h('ul.n-list', atks.map((a) => h('li', h('b', t('atk.' + a)), ' — ', t('atk.' + a + '.d')))))),
         h('div.n-row',
           h('div.n-block', h('div.n-k', t('qb.weak')), h('div.weak', b.weak.map(([p, n]) => h('div.weak-i', h('span', t('part.' + p)), stars(n, 3))))),
-          h('div.n-block', h('div.n-k', t('qb.rewards')), h('div.rewards', h('div.rw', UI.matIcon('crowns'), h('span', q.crowns + ' ' + t('mat.crowns'))), ...['gm_hide', 'gm_plate', 'gm_horn', 'gm_core'].map((m) => h('div.rw', UI.matIcon(m), h('span', t('mat.' + m))))))),
+          h('div.n-block', h('div.n-k', t('qb.rewards')), h('div.rewards', h('div.rw', UI.matIcon('crowns'), h('span', q.crowns + ' ' + t('mat.crowns'))), ...b.show.map((m) => h('div.rw', UI.matIcon(m), h('span', t('mat.' + m))))))),
         h('div.n-diff', h('span', t('qb.threat')), stars(b.stars)),
         taken ? h('div.n-stamp', t('qb.accepted')) : null);
     }
@@ -382,6 +385,7 @@
         if (!this.arm) { this.arm = true; this.action.classList.add('armed'); this.action.textContent = t('qb.cancel.again'); EW.audio.sfx('uiMove'); clearTimeout(this.armT); this.armT = setTimeout(() => { if (this.sel === q) this.show(q); }, 2600); return; }
         EW.game.cancelQuest(); this.build(); return;
       }
+      if (EW.net.isGuest) { EW.hud.notice('coop.hostPicks', 'warn'); EW.audio.sfx('fail', { vol: 0.4 }); return; }
       EW.game.acceptQuest(q); UI.close();
     }
     back() { EW.audio.sfx('uiBack'); UI.close(); }
@@ -463,9 +467,9 @@
             h('div.stat', h('span', t('as.defense')), h('b', a.def + lvl * 3), own && lvl < D.armorMax ? h('span.up', '→ ' + (a.def + (lvl + 1) * 3)) : null),
             h('div.stat', h('span', t('ws.lvl')), h('b', own ? `${lvl} / ${D.armorMax}` : '—')),
             h('div.stat', h('span', t('as.total')), h('b', PR.defense()))),
-          a.set === 'gravemaw' ? h('div.setbonus', h('div.sd-k', t('as.setbonus')), h('div.sb' + (skills.includes('fireward') ? '.on' : ''), h('b', t('skill.fireward')), ' — ', t('skill.fireward.d')), h('div.sb' + (skills.includes('emberheart') ? '.on' : ''), h('b', t('skill.emberheart')), ' — ', t('skill.emberheart.d'))) : null,
+          D.setSkills[a.set] ? h('div.setbonus', h('div.sd-k', t('as.setbonus')), D.setSkills[a.set].map(([, s]) => h('div.sb' + (skills.includes(s) ? '.on' : ''), h('b', t('skill.' + s)), ' — ', t('skill.' + s + '.d')))) : null,
           !own ? h('div.sd-up', h('div.sd-k', t('as.craft')), costList(a.cost), h('div.sd-can' + (PR.canAfford(a.cost) ? '' : '.no'), PR.canAfford(a.cost) ? t('ws.ready') : t('ws.missing')))
-            : lvl < D.armorMax ? h('div.sd-up', h('div.sd-k', t('ws.upgradeTo', { n: lvl + 1 })), costList(D.armorUp(lvl)), h('div.sd-can' + (PR.canAfford(D.armorUp(lvl)) ? '' : '.no'), PR.canAfford(D.armorUp(lvl)) ? t('ws.ready') : t('ws.missing'))) : h('div.sd-max', t('ws.max'))));
+            : lvl < D.armorMax ? h('div.sd-up', h('div.sd-k', t('ws.upgradeTo', { n: lvl + 1 })), costList(PR.armorUpCost(id)), h('div.sd-can' + (PR.canAfford(PR.armorUpCost(id)) ? '' : '.no'), PR.canAfford(PR.armorUpCost(id)) ? t('ws.ready') : t('ws.missing'))) : h('div.sd-max', t('ws.max'))));
     }
     act(id) {
       const PR = EW.progress, a = EW.data.armor[id];
@@ -480,7 +484,7 @@
     alt() {
       const el = this.nav.current(); if (!el) return; const id = el.__id, PR = EW.progress;
       if (!PR.owns(id) || PR.armorLvl(id) >= EW.data.armorMax) return;
-      const c = EW.data.armorUp(PR.armorLvl(id));
+      const c = PR.armorUpCost(id);
       if (!PR.canAfford(c)) { EW.audio.sfx('fail', { vol: 0.5 }); UI.toast(t('ws.missing'), 'bad'); return; }
       if (PR.upgradeArmor(id)) { EW.audio.sfx('anvil'); UI.toast(t('ws.done', { name: t('arm.' + id), n: PR.armorLvl(id) }), 'good'); this.build(); }
     }
@@ -545,6 +549,78 @@
       EW.audio.sfx('fail');
     }
   }
+  // =================================================================== CO-OP: join with a code (title)
+  class CoopJoin extends Screen {
+    constructor() { super('coop', 'coop-screen'); }
+    build() {
+      const N = EW.net, be = EW.netBackend();
+      this.code = h('input.co-code', { maxlength: 5, spellcheck: 'false', autocomplete: 'off', placeholder: '•••••', 'data-focus': true });
+      this.code.__activate = () => this.code.focus();
+      this.code.addEventListener('input', () => { const v = this.code.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 5); if (v !== this.code.value) this.code.value = v; this.msg.textContent = ''; });
+      this.code.addEventListener('keydown', (e) => { if (e.code === 'Enter' || e.code === 'NumpadEnter') { e.preventDefault(); this.join(); } if (e.code === 'Escape') { e.preventDefault(); this.back(); } });
+      this.nameIn = h('input.co-name', { maxlength: 16, spellcheck: 'false', autocomplete: 'off', value: N.name(), 'data-focus': true });
+      this.nameIn.__activate = () => this.nameIn.focus();
+      this.nameIn.addEventListener('change', () => N.setName(this.nameIn.value));
+      this.nameIn.addEventListener('keydown', (e) => { if (e.code === 'Enter') { e.preventDefault(); this.code.focus(); } if (e.code === 'Escape') { e.preventDefault(); this.back(); } });
+      this.msg = h('div.co-msg');
+      const list = h('div.co-form',
+        h('label.co-row', h('span.co-k', t('coop.code')), this.code),
+        h('label.co-row', h('span.co-k', t('coop.name')), this.nameIn),
+        h('div.r-actions', menuItem(t('coop.join'), () => this.join()), menuItem(t('coop.back'), () => this.back(), { sound: 'uiBack' })));
+      const note = be === 'none' ? t('coop.err.none') : t('coop.backend.' + be);
+      this.el.replaceChildren(h('div.scrim'),
+        h('div.writ.co-writ', h('div.writ-title', t('coop.title')), h('div.divider'), h('p.writ-body', t('coop.sub')), list, this.msg, note ? h('p.co-note', note) : null),
+        hints([['confirm', 'ui.select'], ['back', 'ui.back', () => this.back()]]));
+      this.setNav(list);
+      requestAnimationFrame(() => this.code.focus());
+    }
+    async join() {
+      if (this.busy) return;
+      const N = EW.net;
+      if (EW.netBackend() === 'none') { this.msg.textContent = t('coop.err.none'); EW.audio.sfx('fail', { vol: 0.4 }); return; }
+      N.setName(this.nameIn.value);
+      this.busy = true; this.msg.textContent = t('coop.joining'); this.msg.className = 'co-msg';
+      let r = 'offline';
+      try { r = await N.join(this.code.value); } catch (e) { console.error(e); }
+      this.busy = false;
+      if (r === 'ok') { this.code.blur(); EW.game.enterCoop(); return; }
+      this.msg.textContent = t('coop.err.' + r); this.msg.className = 'co-msg bad'; EW.audio.sfx('fail', { vol: 0.4 });
+    }
+    back() { EW.audio.sfx('uiBack'); document.activeElement && document.activeElement.blur(); UI.close(); }
+  }
+
+  // =================================================================== CO-OP: the room (pause menu)
+  class CoopRoom extends Screen {
+    constructor() { super('room', 'coop-screen'); this.onNet = () => { if (top() === this) this.build(); }; EW.bus.on('net', this.onNet); }
+    build() {
+      const N = EW.net, be = EW.netBackend();
+      const acts = h('div.r-actions');
+      let body;
+      if (!N.active) {
+        body = h('div.co-body', h('p.writ-body', t('room.closed')), h('p.co-note', t('room.hint')), this.err = h('div.co-msg'));
+        acts.append(menuItem(t('room.open'), () => this.open(), { disabled: be === 'none' || EW.game.state !== 'hub' }), menuItem(t('coop.back'), () => this.back(), { sound: 'uiBack' }));
+        if (be === 'none') this.err.textContent = t('coop.err.none');
+      } else {
+        const who = N.members().map((m) => h('div.co-member' + (m.me ? '.me' : ''), h('span.co-dot'), h('span.co-mn', m.n), m.host ? h('em', t('room.host')) : null, m.me ? h('em', t('room.you')) : null, h('span.co-w', t('coop.where.' + m.w))));
+        const copy = menuItem(t('room.copy'), () => { try { navigator.clipboard.writeText(N.code); } catch (e) { /* no clipboard */ } UI.toast(t('room.copied'), 'good'); });
+        body = h('div.co-body', h('div.co-k', t('room.code')), h('div.co-big', N.code), h('div.co-k', t('room.members') + ` ${N.count()}/4`), h('div.co-members', who), N.isHost ? h('p.co-note', t('room.hint')) : null);
+        acts.append(copy,
+          menuItem(N.isHost ? t('room.close') : t('room.leave'), () => { if (N.isHost) { N.leave(); this.build(); } else { UI.reset(); EW.game.quitToTitle(); } }, { sound: 'uiBack' }),
+          menuItem(t('coop.back'), () => this.back(), { sound: 'uiBack' }));
+      }
+      const note = be === 'local' || be === 'fire-emu' ? h('p.co-note', t('coop.backend.' + be)) : null;
+      this.el.replaceChildren(h('div.scrim'), h('div.writ.co-writ', h('div.writ-title', t('room.title')), h('div.divider'), body, acts, note), hints([['confirm', 'ui.select'], ['back', 'ui.back', () => this.back()]]));
+      this.setNav(acts);
+    }
+    async open() {
+      if (this.busy) return; this.busy = true;
+      if (this.err) this.err.textContent = t('room.opening');
+      try { await EW.net.host(); } catch (e) { console.error(e); if (this.err) this.err.textContent = t('coop.err.offline'); }
+      this.busy = false; if (EW.net.active) this.build();
+    }
+    back() { EW.audio.sfx('uiBack'); UI.close(); }
+  }
+
   class Farewell extends Screen {
     constructor() { super('farewell', 'farewell-screen'); }
     build() { this.el.replaceChildren(h('div.scrim.scrim-deep'), h('div.fw', h('div.crest'), h('div.fw-title', t('fw.title')), h('div.fw-sub', t('fw.sub')))); }
@@ -554,5 +630,6 @@
     UI.initArt();
     new LangScreen(); new TitleScreen(); new ConfirmScreen(); new SettingsScreen(); new PauseScreen();
     new QuestBoard(); new WeaponShop(); new ArmorShop(); new Inventory(); new Results(); new Failed(); new Farewell();
+    new CoopJoin(); new CoopRoom();
   };
 })();

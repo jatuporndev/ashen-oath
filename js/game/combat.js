@@ -22,6 +22,7 @@
     const boss = EW.hunt && EW.hunt.boss;
     if (!boss || boss.state === 'dead' || boss.state === 'dormant' && false) return null;
     if (boss.air > 3) return null;
+    if (boss.mount && p.state !== 'mounted') return null; // someone is riding it: only the rider strikes
     let best = null, bestScore = 1e9;
     const aimX = p.x + fx * move.range * 0.55, aimZ = p.z + fz * move.range * 0.55, aimY = (h0 + h1) / 2;
     for (const s of boss.spheres()) {
@@ -59,7 +60,8 @@
   // crystal explosion: damages the boss (and a careless hunter)
   C.explosion = (cr) => {
     const boss = EW.hunt && EW.hunt.boss, p = EW.hunt && EW.hunt.player;
-    if (boss && boss.state !== 'dead' && boss.state !== 'dormant') {
+    if (boss && boss.replica) { /* co-op guest: the host's copy of this explosion hurts the beast */ }
+    else if (boss && boss.state !== 'dead' && boss.state !== 'dormant') {
       let best = null, bd = 1e9;
       for (const s of boss.spheres()) { const d = Math.hypot(s.x - cr.x, s.z - cr.z, (s.y - cr.y - 1.5) * 0.5) - s.r; if (d < bd) { bd = d; best = s; } }
       if (best && bd < 7) {

@@ -56,6 +56,7 @@
       (el.quest = h('div.quest-info', (el.qName = h('div.q-name')), h('div.q-row', (el.qTime = h('span.q-time')), (el.qFaints = h('span.q-faints')))) ),
       (el.boss = h('div.bossplate', (el.bossName = h('div.bp-name')), h('div.bp-orn'), (el.bossState = h('div.bp-state')))),
       (el.markers = h('div.markers')),
+      (el.party = h('div.party')),
       (el.prompt = h('div.prompt')),
       (el.notices = h('div.notices')),
       (el.tips = h('div.tips')),
@@ -122,12 +123,24 @@
         el.reticle.style.display = pr.ok ? '' : 'none'; el.reticle.style.transform = `translate(${pr.x}px, ${pr.y}px)`;
       } else el.reticle.style.display = 'none';
       // mount meter
-      const m = b.mount;
+      const m = p.state === 'mounted' ? b.mount : null;
       el.mount.classList.toggle('on', !!m);
       if (m) { el.mFill.style.width = Math.min(100, m.meter) + '%'; el.mBrace.classList.toggle('on', m.tele > 0 || m.thrash > 0); el.mBrace.classList.toggle('ok', !!p.braced); }
       el.lock.style.display = 'none';
     } else { el.boss.classList.remove('on'); el.reticle.style.display = 'none'; el.mount.classList.remove('on'); }
     updateMarkers(ctx);
+    // co-op party: room code + allies (name + health), refreshed a few times a second
+    HUD.partyT = (HUD.partyT || 0) - dt;
+    if (HUD.partyT <= 0) {
+      HUD.partyT = 0.25;
+      const N = EW.net;
+      if (!N.active) { if (el.party.childElementCount) el.party.replaceChildren(); }
+      else {
+        const rows = [h('div.party-row.code', 'CO-OP · ' + N.code)];
+        for (const m of N.members()) if (!m.me) rows.push(h('div.party-row', h('span', m.n), m.w === N.where() ? h('span.pb', h('span', { style: { width: Math.round(Math.max(0, Math.min(1, m.hp)) * 100) + '%' } })) : h('span', '· ' + t('coop.where.' + m.w))));
+        el.party.replaceChildren(...rows);
+      }
+    }
     // interaction prompt
     const it = ctx.interact;
     if (it) {
@@ -155,6 +168,9 @@
   };
   HUD.hurt = (d, fire, chip) => { HUD.hurtT = Math.min(0.8, (HUD.hurtT || 0) + (chip ? 0.1 : 0.35)); el.vignette.classList.toggle('fire', !!fire); };
   HUD.notice = (key, kind = '', vars) => {
+    // {boss} = the beast of the current hunt
+    const bk = (EW.hunt && EW.hunt.quest && EW.hunt.quest.boss) || 'gravemaw';
+    vars = Object.assign({ boss: t('boss.' + bk) }, vars || {});
     const n = h('div.notice-line' + (kind ? '.' + kind : ''), h('span.nl-orn'), h('span', t(key, vars)), h('span.nl-orn'));
     el.notices.append(n);
     while (el.notices.children.length > 3) el.notices.firstChild.remove();
@@ -172,7 +188,7 @@
     el.area.classList.remove('on'); void el.area.offsetWidth; el.area.classList.add('on');
   };
   HUD.bossCard = (b) => {
-    el.area.replaceChildren(h('div.ac-kicker', t('size.' + b.size)), h('div.ac-title.boss', t('boss.gravemaw')), h('div.ac-sub', t('boss.gravemaw.title')));
+    el.area.replaceChildren(h('div.ac-kicker', t('size.' + b.size)), h('div.ac-title.boss', t('boss.' + (b.key || 'gravemaw'))), h('div.ac-sub', t('boss.' + (b.key || 'gravemaw') + '.title')));
     el.area.classList.remove('on'); void el.area.offsetWidth; el.area.classList.add('on', 'boss');
     setTimeout(() => el.area.classList.remove('boss'), 5000);
   };

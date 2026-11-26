@@ -10,25 +10,29 @@
 
   // baked pixel-art sheets (js/art/forge.js), one per weapon + armour palette + weapon tier
   // a sheet is a big canvas (tens of MB): keep only the few most recent
-  const forged = new Map(), baking = new Map(), KEEP = 3;
-  const sheetKey = (kind) => kind + '|' + EW.progress.palette() + '|' + EW.progress.weaponTier(kind);
-  const bakeOpts = (kind) => ({ pal: A.HERO_PALETTES[EW.progress.palette()], weapon: kind, tier: EW.progress.weaponTier(kind) });
+  // (co-op hunters share it: two hunters with the same weapon + armour + tier use one sheet)
+  const forged = new Map(), baking = new Map(), KEEP = 5;
+  const look = (kind) => ({ kind, pal: EW.progress.palette(), tier: EW.progress.weaponTier(kind) });
+  const keyOf = (o) => o.kind + '|' + o.pal + '|' + o.tier;
+  const sheetKey = (kind) => keyOf(look(kind));
+  const optsOf = (o) => ({ pal: A.HERO_PALETTES[o.pal] || A.HERO_PALETTES.leather, weapon: o.kind, tier: o.tier });
   const remember = (k, S) => { forged.delete(k); forged.set(k, S); while (forged.size > KEEP) forged.delete(forged.keys().next().value); return S; };
   function forgeSheet(kind) {
     const k = sheetKey(kind);
     if (forged.has(k)) return remember(k, forged.get(k));
-    return remember(k, EW.Forge.bake(bakeOpts(kind)));
+    return remember(k, EW.Forge.bake(optsOf(look(kind))));
   }
   // baked in slices (no frozen frame); the shop shows the smith at work meanwhile
-  function forgeSheetAsync(kind) {
-    const k = sheetKey(kind);
+  function bakeAsync(o) {
+    const k = keyOf(o);
     if (baking.has(k)) return baking.get(k);
-    const job = EW.Forge.bakeAsync(bakeOpts(kind));
+    const job = EW.Forge.bakeAsync(optsOf(o));
     job.key = k;
     job.promise = job.promise.then((S) => { baking.delete(k); return remember(k, S); }, (e) => { baking.delete(k); throw e; });
     baking.set(k, job);
     return job;
   }
+  const forgeSheetAsync = (kind) => bakeAsync(look(kind));
   // how long it takes to get the weapon off the back and into the hands
   const DRAW = { greatsword: 0.5, spear: 0.38, dual: 0.3 }, SHEATHE = 0.34;
   class Player {
@@ -72,10 +76,14 @@
       const can = ctx.control;
       if (!can) EW.input.edges.clear();
       // edges (always sampled so stale presses don't fire later)
-      const atk = can && this.pressed('attack'), atkUp = !EW.input.held('attack');
+      // only one hunter rides the beast: while someone is on its back the others hold their attacks
+      const bossM = EW.hunt && EW.hunt.boss, ridden = !!(bossM && bossM.mount) && this.state !== 'mounted';
+      const atkRaw = can && this.pressed('attack');
+      const atk = atkRaw && !ridden, atkUp = !EW.input.held('attack');
+      if (atkRaw && ridden && E.time - (this.riddenNote || -9) > 2.5) { this.riddenNote = E.time; EW.hud && EW.hud.notice('coop.riding', 'warn'); }
       const dodge = can && this.pressed('dodge');
       const jump = can && this.pressed('jump');
-      const skillDown = can && EW.input.held('skill'), skillP = can && this.pressed('skill');
+      const skillDown = can && !ridden && EW.input.held('skill'), skillP = can && this.pressed('skill') && !ridden;
       const potion = can && this.pressed('potion');
       if (atk) this.buffer = 0.32; else this.buffer = Math.max(0, this.buffer - dt);
       // stamina regen
@@ -295,6 +303,8 @@
       if (this.state === 'mounted') return 'none';
       const dx = hit.src.x - this.x, dz = hit.src.z - this.z, l = Math.hypot(dx, dz) || 1;
       const front = (dx / l) * this.fx + (dz / l) * this.fz > 0.25;
+      // Earthbound (cragjaw set): roars and ground tremors don't shake you
+      if ((hit.roar || hit.tremor) && EW.progress.skills().includes('earthbound')) { if (!this.tremorNote || E.time - this.tremorNote > 3) { this.tremorNote = E.time; EW.hud && EW.hud.notice('skill.earthbound.on', 'good'); } return 'none'; }
       if (hit.roar) {
         if (this.state === 'guard' || this.state === 'stance') return 'blocked';
         this.setState('stun'); return 'hit';
@@ -318,6 +328,7 @@
       }
       let d = (hit.dmg * 100) / (100 + this.def);
       if (hit.fire && EW.progress.skills().includes('fireward')) d *= 0.7;
+      if (!hit.fire && EW.progress.skills().includes('stoneskin')) d *= 0.85;
       d = Math.max(1, Math.round(d));
       this.hp -= d;
       if (hit.chip) { EW.hud && EW.hud.hurt(d, hit.fire, true); if (this.hp <= 0) this.faint(); return 'hit'; }
@@ -394,8 +405,11 @@
       // weapon on the back: the '_s' twin of the animation when there is one
       if (this.sheathed && st !== 'draw' && S.has(anim + '_s')) anim += '_s';
       S.show(anim, f);
+      this.lastAnim = anim; this.lastF = f; // co-op: what the others draw for us
       S.mat.color.setScalar(this.iframe && st === 'dodge' ? 1.25 : 1);
     }
   }
+  // a sheet for any hunter look (co-op): { sheet } when ready, else { job } baking in slices
+  Player.sheetFor = (o) => { const k = keyOf(o); if (forged.has(k)) return { sheet: remember(k, forged.get(k)) }; return { job: bakeAsync(o) }; };
   EW.Player = Player;
 })();

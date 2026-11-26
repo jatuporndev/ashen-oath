@@ -46,6 +46,9 @@
     EW.cam.reset(p.x, p.y + 1.6, p.z, from === 'return' ? Math.PI : 0, 10, 0.3);
     EW.cam.lock = false;
     G.quest = null;
+    const N = EW.net;
+    if (N.isHost) { N.setMeta({ ph: 'hub', q: null, b: null, open: 1 }); N.sentHost = null; }
+    if (N.isGuest && N.meta && N.meta.q) G.setCoopQuest(N.meta.q, true);
     W.interact.push({ id: 'gate', x: 0, z: -26, r: 5.5, y: 9, label: 'prompt.gate', enabled: () => !G.quest, act: () => { EW.hud.notice('notice.gateSealed', 'warn'); EW.audio.sfx('fail', { vol: 0.4 }); } });
     G.state = 'hub';
     EW.audio.music('hub'); EW.audio.ambience('hub');
@@ -55,12 +58,35 @@
   G.newGame = () => { EW.save.newGame(); EW.ui.fadeThrough(() => { EW.ui.reset(); enterHub('new'); setTimeout(() => { G.say('dlg.master', 'dlg.welcome'); EW.hud.tip('tip.hub'); }, 900); }, { card: [t('area.hub'), t('game.subtitle')] }); };
   G.continueGame = () => { EW.save.loadGame(); EW.ui.fadeThrough(() => { EW.ui.reset(); enterHub('new'); setTimeout(() => EW.hud.tip('tip.hub'), 900); }, { card: [t('area.hub'), ''] }); };
   G.acceptQuest = (q) => {
+    if (EW.net.isGuest) { EW.hud.notice('coop.hostPicks', 'warn'); return; }
     G.quest = q; W.gate.target = 1;
+    EW.net.setMeta({ q: q.id });
     EW.audio.sfx('uiConfirm'); EW.hud.notice('notice.questAccepted', 'good');
-    setTimeout(() => { EW.hud.notice('notice.gateOpen', 'good'); G.say('dlg.master', 'dlg.accept'); EW.hud.tip('tip.gate'); }, 700);
+    setTimeout(() => { EW.hud.notice('notice.gateOpen', 'good'); G.say('dlg.master', q.boss === 'gravemaw' ? 'dlg.accept' : 'dlg.accept.' + q.boss); EW.hud.tip('tip.gate'); }, 700);
   };
-  G.cancelQuest = () => { G.quest = null; W.gate.target = 0; EW.hud.notice('notice.questCancelled'); };
+  G.cancelQuest = () => { if (EW.net.isGuest) return; G.quest = null; W.gate.target = 0; EW.net.setMeta({ q: null }); EW.hud.notice('notice.questCancelled'); };
+  // co-op guests: the host's quest opens (or seals) the gate for them too
+  G.setCoopQuest = (qid, quiet) => {
+    const q = qid ? EW.data.quests.find((x) => x.id === qid) : null;
+    if ((G.quest && G.quest.id) === (q && q.id)) return;
+    G.quest = q; if (W.gate) W.gate.target = q ? 1 : 0;
+    if (!quiet && G.state === 'hub') { EW.hud.notice(q ? 'notice.questAccepted' : 'notice.questCancelled', q ? 'good' : ''); if (q) EW.hud.notice('notice.gateOpen', 'good'); }
+  };
+  G.coopDepart = (qid) => { G.setCoopQuest(qid, true); if (G.quest && G.state === 'hub') depart(); };
+  // co-op guest: the host left — back to the title
+  G.onRoomClosed = () => {
+    if (G.state === 'attract' || G.state === 'boot') { EW.ui.toast(t('coop.closed'), 'warn'); return; }
+    EW.ui.fadeThrough(() => { attract(); EW.ui.reset('title'); EW.ui.toast(t('coop.closed'), 'warn'); });
+  };
+  // co-op guest: joined a room → walk into the host's guild with your own hunter and save
+  G.enterCoop = () => {
+    if (EW.save.hasGame()) EW.save.loadGame(); else EW.save.newGame();
+    EW.ui.fadeThrough(() => { EW.ui.reset(); enterHub('new'); setTimeout(() => EW.hud.notice('coop.welcome', 'good', { name: (EW.net.meta && EW.net.meta.hn) || '' }), 700); }, { card: [t('area.hub'), t('menu.coop')] });
+  };
+  G.abandon = () => { if (EW.net.isHost) EW.net.send({ t: 'abandon' }); EW.ui.reset(); G.returnToGuild(false); };
   function depart() {
+    const N = EW.net;
+    if (N.isHost) { N.send({ t: 'depart', qid: G.quest.id }); N.setMeta({ ph: 'field' }); }
     G.state = 'depart';
     const p = G.player; p.setState('cine'); p.autoWalk = [0, -1];
     EW.audio.sfx('gate', { vol: 0.5 });
@@ -76,7 +102,7 @@
       setTimeout(() => G.say('dlg.master', success ? 'dlg.return' : 'dlg.fail'), 900);
     }, { out: 900, hold: 700, card: [t('area.hub'), ''] });
   };
-  G.quitToTitle = () => { EW.ui.fadeThrough(() => { attract(); EW.ui.reset('title'); }); };
+  G.quitToTitle = () => { EW.net.leave(); EW.ui.fadeThrough(() => { attract(); EW.ui.reset('title'); }); };
   G.exit = () => { EW.ui.reset('farewell'); EW.audio.music(null); EW.hud.show(false); setTimeout(() => { try { window.close(); } catch (e) { /* browsers may refuse */ } }, 1600); };
   G.afterLanguage = () => { EW.ui.reset('title'); };
 
@@ -128,13 +154,14 @@
     }
     const steps = DEBUG_STEPS;
     for (let i = 0; i < steps; i++) tick(dt, i === steps - 1);
+    EW.net.tick(dt);
     E.render();
   }
   const DEBUG_STEPS = Math.max(1, Math.min(8, +(new URLSearchParams(location.search).get('steps') || 1)));
   function tick(dt, last) {
     if (!last) E.time += dt;
     const p = G.player;
-    const frozen = G.state === 'field' && EW.ui.isOpen(); // menus pause the hunt
+    const frozen = G.state === 'field' && EW.ui.isOpen() && !EW.net.active; // menus pause the hunt (not in co-op)
     let sim = frozen ? 0 : dt;
     if (EW.combat.stop > 0) { EW.combat.stop -= dt; sim *= 0.06; }
     if (G.state === 'hub' || G.state === 'depart' || G.state === 'field') {
@@ -147,7 +174,12 @@
         catch (e) { if (!G.updErr) { G.updErr = true; console.error('player update failed', p.state, e); } p.vy = 0; p.y = W.heightAt(p.x, p.z); if (p.state !== 'mounted' && p.state !== 'faint') p.setState('move'); }
         if (hunt) hunt.update(sim);
         EW.combat.update(sim);
-        if (G.state === 'hub' && G.quest && p.z < W.departZ) depart();
+        if (G.state === 'hub' && G.quest && p.z < W.departZ) {
+          // co-op: the host leads everyone through together, once the whole party is in town
+          const N = EW.net, hold = N.isGuest ? 'coop.waitHost' : N.isHost && !N.partyReady() ? 'coop.waitParty' : null;
+          if (hold) { p.z = W.departZ + 0.4; if (E.time - (G.holdNote || -9) > 3) { G.holdNote = E.time; EW.hud.notice(hold, 'warn'); } }
+          else depart();
+        }
         if (G.state === 'hub') EW.save.game.playtime += dt;
       }
       W.update(dt, p);

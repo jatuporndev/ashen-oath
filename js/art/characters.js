@@ -24,6 +24,7 @@
   A.HERO_PALETTES = {
     leather: { skin: '#f0c6a0', hair: '#5a3424', cloth: '#6b4a32', leather: '#8a5c38', metal: '#a8b0b8', cape: '#2f5a5e', accent: '#c8a050', boot: '#4a3020', pants: '#4a4048' },
     gravemaw: { skin: '#f0c6a0', hair: '#5a3424', cloth: '#3a3434', leather: '#4a4040', metal: '#2e2a2c', cape: '#7a2a1e', accent: '#ff9a3a', boot: '#2a2224', pants: '#2e2a30', ember: true },
+    cragjaw: { skin: '#f0c6a0', hair: '#5a3424', cloth: '#4e4c3a', leather: '#6a5c40', metal: '#7a7c70', cape: '#5a6a3e', accent: '#ffc04a', boot: '#3a3226', pants: '#3e3c30' },
   };
 
   function drawLegs(x, view, pose, pal, cx) {
